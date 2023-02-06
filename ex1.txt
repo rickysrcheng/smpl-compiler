@@ -1,0 +1,1 @@
+computation var i <- 2 * 3; var abracadabra <- 7; (((abracadabra * i))); var abc <- 4; i - 5 - 1 ; i*i; abracadabra*5+10; abc + abracadabra - i.
