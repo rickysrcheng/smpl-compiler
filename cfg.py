@@ -30,12 +30,18 @@ class InstructionNode:
         if operand2:
             self.operand2 = operand2
 
+    def PrintInstruction(self):
+        print(f'{self.instID} {self.instruction} {self.operand1} {self.operand2} {self.BB}')
+
 
 class BasicBlock:
-    def __init__(self, bbID: int, valueTable: dict = None, parents: list = [], dominators: list = []):
+    def __init__(self, bbID: int, valueTable: dict = None, parents: list = None, dominators: list = None):
 
         # tables needed for SSA tracking
-        self.valueTable = valueTable
+        if valueTable is None:
+            self.valueTable = {}
+        else:
+            self.valueTable = valueTable
 
         # optable
         # entry format (instID, op1, op2)
@@ -47,10 +53,15 @@ class BasicBlock:
 
         # for control flow graph
         self.children = []
-        self.parents = parents
+        if parents is None:
+            self.parents = []
+        else:
+            self.parents = parents
 
         # by definition, a basic block dominates itself
-        self.dominators = [bbID] + dominators
+        self.dominators = [bbID]
+        if dominators is not None:
+            self.dominators += dominators
 
         self.bbID = bbID
 
@@ -67,4 +78,4 @@ class BasicBlock:
         self.dominators.append(block)
 
     def AddNewOp(self, op, operand1, operand2, instID):
-        pass
+        self.opTables[op].insert(0, (instID, operand1, operand2))

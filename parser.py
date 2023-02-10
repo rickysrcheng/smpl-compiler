@@ -31,6 +31,9 @@ class Parser:
         else:
             raise SyntaxError(f'Expected {token}, got {self.sym}')
 
+    def PrintSSA(self):
+        self.ssa.PrintInstructions()
+
     # def template(self):
     #	  self.level += 1
     #     if self.debug:
@@ -50,12 +53,19 @@ class Parser:
 
         # Variable instantiation
         # varDecl = typeDecl indent { “,” ident } “;”
-        while self.sym == Tokens.varToken or self.sym == Tokens.arrToken:
+
+        endVarDecl = True
+        while self.sym != Tokens.funcToken and self.sym != Tokens.beginToken:
             # typeDecl = “var” | “array” “[“ number “]” { “[“ number “]”}
+            print(self.sym)
             if self.sym == Tokens.varToken:
                 self.next()
+                endVarDecl = False
+
+            if not endVarDecl:
                 if self.sym > 255:
                     self.identTable[self.sym] = None
+                    self.next()
                 else:
                     self.t.close()
                     raise SyntaxError("Keyword cannot be used as variable name")
@@ -63,21 +73,22 @@ class Parser:
                 pass
 
             if self.sym == Tokens.semiToken:
-                break
+                self.next()
+                endVarDecl = True
             elif self.sym == Tokens.commaToken:
-                pass
+                self.next()
             else:
                 self.t.close()
-                raise SyntaxError("Expected \',\' or \';\', got ")
+                raise SyntaxError(f"Expected \',\' or \';\', got {self.sym}")
 
         # Function instantiation
         if self.sym == Tokens.funcToken:
             pass
 
         # move to statSequence
-        self.CheckFor(Tokens.openbracketToken)
+        self.CheckFor(Tokens.beginToken)
         self.statSequence()
-        self.CheckFor(Tokens.closebracketToken)
+        self.CheckFor(Tokens.endToken)
 
         self.CheckFor(Tokens.periodToken)
         if self.debug:
@@ -88,10 +99,10 @@ class Parser:
         # originally nested in computation but broken out since other rules uses it too
         self.level += 1
         if self.debug:
-            print(f'{" "*self.level*self.spacing}In statSequence{self.level}')
+            print(f'{" " * self.level * self.spacing}In statSequence{self.level}')
         # Do stuff here
         while True:
-            if self.sym == Tokens.closebracketToken:
+            if self.sym == Tokens.endToken:
                 break
             # statement = assignment | funcCall | ifStatement | whileStatement | returnStatement
             if self.sym == Tokens.letToken:
@@ -110,32 +121,32 @@ class Parser:
             if self.sym == Tokens.semiToken:
                 self.next()
         if self.debug:
-            print(f'{" "*self.level*self.spacing}Exit statSequence{self.level}')
+            print(f'{" " * self.level * self.spacing}Exit statSequence{self.level}')
         self.level -= 1
         return
-
 
     def assignment(self):
         # assignment = “let” designator “<-” expression
         # TODO Project step 1
         self.level += 1
         if self.debug:
-            print(f'{" "*self.level*self.spacing}In assignment{self.level}')
+            print(f'{" " * self.level * self.spacing}In assignment{self.level}')
 
         # Do stuff here
-
-        # first check if designator has been assigned
+        # first check if designator has been declared
         if self.sym in self.identTable:
             pass
         ident = self.sym
-
+        self.next()
+        print(ident)
         self.CheckFor(Tokens.becomesToken)
 
+        currBB = self.ssa.GetCurrBasicBlock()
         instNode = self.expression()
-        self.ssa.AssignVariable()
+        self.ssa.AssignVariable(ident, instNode, currBB)
 
         if self.debug:
-            print(f'{" "*self.level*self.spacing}Exit assignment{self.level}')
+            print(f'{" " * self.level * self.spacing}Exit assignment{self.level}')
         self.level -= 1
         return
 
@@ -193,23 +204,29 @@ class Parser:
         self.level += 1
         if self.debug:
             print(f'{" " * self.level * self.spacing}In E{self.level}')
-        result = self.term()
+        instID = self.term()
+        currBB = self.ssa.GetCurrBasicBlock()
         if self.debug:
-            print(f'{" " * self.level * self.spacing}E{self.level}: Term 1: {result}')
+            print(f'{" " * self.level * self.spacing}E{self.level}: Term 1: {instID}')
         while self.sym == Tokens.plusToken or self.sym == Tokens.minusToken:
+            op1 = instID
             if self.sym == Tokens.plusToken:
                 self.next()
-                result += self.term()
+                op2 = self.term()
+                # result += self.term()
+                instID = self.ssa.DefineIR(IRTokens.addToken, currBB, op1, op2)
             elif self.sym == Tokens.minusToken:
                 self.next()
-                result -= self.term()
+                op2 = self.term()
+                # result -= self.term()
+                instID = self.ssa.DefineIR(IRTokens.subToken, currBB, op1, op2)
 
             if self.debug:
-                print(f'{" " * self.level * self.spacing}E{self.level}: Current expression: {result}')
+                print(f'{" " * self.level * self.spacing}E{self.level}: Current expression: {instID} {op1} {op2}')
         if self.debug:
-            print(f'{" " * self.level * self.spacing}Exit E{self.level}: {result}')
+            print(f'{" " * self.level * self.spacing}Exit E{self.level}: {instID}')
         self.level -= 1
-        return result
+        return instID
 
     def term(self):
         # term = factor { (“*” | “/”) factor}
@@ -217,22 +234,22 @@ class Parser:
         if self.debug:
             print(f'{" " * self.level * self.spacing}In T{self.level}')
         instID = self.factor()
-
+        currBB = self.ssa.GetCurrBasicBlock()
         # if self.debug:
         #     print(f'{" " * self.level * self.spacing}T{self.level}: Factor 1: {result}')
 
         while self.sym == Tokens.timesToken or self.sym == Tokens.divToken:
+            op1 = instID
             if self.sym == Tokens.timesToken:
                 self.next()
                 op2 = self.factor()
-                instID = self.ssa.DefineIR(IRTokens.mulToken, instID, op2)
-                # result *= self.factor()
+                instID = self.ssa.DefineIR(IRTokens.mulToken, currBB, instID, op2)
             elif self.sym == Tokens.divToken:
                 self.next()
                 op2 = self.factor()
-                instID = self.ssa.DefineIR(IRTokens.divToken, instID, op2)
+                instID = self.ssa.DefineIR(IRTokens.divToken, currBB, instID, op2)
             if self.debug:
-                print(f'{" " * self.level * self.spacing}T{self.level}: Current term: {instID}')
+                print(f'{" " * self.level * self.spacing}T{self.level}: Current term: {instID} {op1} {op2}')
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit T{self.level}: {instID}')
         self.level -= 1
@@ -247,29 +264,31 @@ class Parser:
         currBB = self.ssa.GetCurrBasicBlock()
         # number
         if self.sym == Tokens.number:
-            #result = self.t.lastNum
+            # result = self.t.lastNum
             instID = self.ssa.DefineIR(IRTokens.constToken, currBB, self.t.lastNum)
             self.next()
         # designator = ident{ "[" expression "]" }
         elif self.sym > 255:
-            result = self.identTable[self.sym]
+            # result = self.identTable[self.sym]
+            instID = self.ssa.GetVarInstNode(self.sym, currBB)
             self.next()
         # “(“ expression “)”
         elif self.sym == Tokens.openparenToken:
             self.next()
-            result = self.expression()
+            instID = self.expression()
             self.CheckFor(Tokens.closeparenToken)
         # funcCall
         elif self.sym == Tokens.callToken:
             pass
 
         if self.debug:
-            print(f'{" " * self.level * self.spacing}Exit F{self.level}: {result}')
+            print(f'{" " * self.level * self.spacing}Exit F{self.level}: {instID}')
         self.level -= 1
-        return result
+        return instID
 
 
 if __name__ == '__main__':
-    comp = Parser("./example.txt", True)
+    comp = Parser("./SSAStep1Test.txt", True)
     comp.computation()
+    comp.PrintSSA()
     comp.close()

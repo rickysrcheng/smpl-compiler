@@ -7,7 +7,15 @@ class SSA:
     """
     Maintains control flow graphs, basic blocks, value tables
     """
-    def __init__(self):
+    def __init__(self, debug=False):
+        self.opDct = {
+            IRTokens.constToken: "const",
+            IRTokens.addToken: 'add',
+            IRTokens.subToken: 'sub',
+            IRTokens.mulToken: 'mul',
+            IRTokens.divToken: 'div'
+        }
+
         self.instructionCount = 0 # always incrementing
         self.instructionList = []
 
@@ -16,9 +24,9 @@ class SSA:
         self.BBList = []
         self.BBList.append(BasicBlock(self.GetNextBBID()))
         block1 = BasicBlock(self.GetNextBBID())
-        self.BBList[0].AddChild(block1)
-        block1.AddParent(self.BBList[0])
-        block1.AddDominator(self.BBList[0])
+        self.BBList[0].AddChild(block1.bbID)
+        block1.AddParent(0)
+        block1.AddDominator(0)
         self.BBList.append(block1)
         self.CurrentBasicBlock = 1
 
@@ -43,7 +51,6 @@ class SSA:
         """
 
         instID = self.FindPreviousInst(operation, operand1, operand2, bb_id)
-
         # if no instructions are found, create a new instruction
         if instID == -1:
             instID = self.GetNextInstID()
@@ -54,6 +61,7 @@ class SSA:
                 self.BBList[0].opTables[operation].insert(0, (instID, operand1))
             else:
                 instruction = InstructionNode(operation, operand1, operand2, instID, bb_id)
+                instruction.PrintInstruction()
                 self.instructionList.append(instruction)
                 self.BBList[bb_id].instructions.append(instID)
                 self.BBList[bb_id].opTables[operation].insert(0, (instID, operand1, operand2))
@@ -83,16 +91,24 @@ class SSA:
                     if inst[1] == operand1 and inst[2] == operand2:
                         return inst[0]
         return -1
-    def AssignVariable(self, varToken, instructionNode, bb_id):
+
+    def AssignVariable(self, varToken, instID, bb_id):
         """
         Updates the value table in the current basic block
         If the variable has been assigned before, create a new version (maintains SSA)
         :param varToken: the variable token to be updated
-        :param instructionNode: the instruction assigned to the variable
-        :return:
+        :param instID: the instruction assigned to the variable
+        :param bb_id: the basic block ID
+        :return: void
         """
-
-        pass
+        if bb_id != 0:
+            if varToken in self.BBList[bb_id].valueTable:
+                n = len(self.BBList[bb_id].valueTable[varToken])
+                self.BBList[bb_id].valueTable[varToken].insert(0, (n, instID))
+            else:
+                self.BBList[bb_id].valueTable[varToken] = [(0, instID)]
+        else:
+            raise Exception("Basic block 0 has no variables")
 
     def GetVarInstNode(self, varToken, bb_id: int = -1):
         """
@@ -109,6 +125,7 @@ class SSA:
         for dom_block in dom_list:
             if varToken in self.BBList[dom_block].valueTable:
                 # return first entry
+                print(self.BBList[dom_block].valueTable[varToken][0][1])
                 return self.BBList[dom_block].valueTable[varToken][0][1]
         # if we reached here, that means this variable does not have a value
         print("WARNING: variable not instantiated. Assigning variable with value 0.")
@@ -116,10 +133,23 @@ class SSA:
         self.AssignVariable(varToken, instID, self.CurrentBasicBlock)
         return instID
 
-
     def CreateNewBasicBlock(self, dom_list, parent_list):
         # TODO
         pass
 
     def GetCurrBasicBlock(self):
         return self.CurrentBasicBlock
+
+    def PrintInstructions(self):
+
+        print(self.BBList[1].valueTable)
+        for inst in self.instructionList:
+            op1 = inst.operand1
+            if inst.operand1 is None:
+                op1 = ""
+            op2 = inst.operand2
+            if inst.operand2 is None:
+                op2 = ""
+            op = inst.instruction
+            instID = inst.instID
+            print(f'({instID}, {inst.BB}): {self.opDct[op]} {op1} {op2}')
