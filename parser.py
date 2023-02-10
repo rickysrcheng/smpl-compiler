@@ -1,5 +1,5 @@
 import tokenizer
-from tokens import Tokens
+from tokens import *
 import ssa
 
 
@@ -216,22 +216,27 @@ class Parser:
         self.level += 1
         if self.debug:
             print(f'{" " * self.level * self.spacing}In T{self.level}')
-        result = self.factor()
-        if self.debug:
-            print(f'{" " * self.level * self.spacing}T{self.level}: Factor 1: {result}')
+        instID = self.factor()
+
+        # if self.debug:
+        #     print(f'{" " * self.level * self.spacing}T{self.level}: Factor 1: {result}')
+
         while self.sym == Tokens.timesToken or self.sym == Tokens.divToken:
             if self.sym == Tokens.timesToken:
                 self.next()
-                result *= self.factor()
+                op2 = self.factor()
+                instID = self.ssa.DefineIR(IRTokens.mulToken, instID, op2)
+                # result *= self.factor()
             elif self.sym == Tokens.divToken:
                 self.next()
-                result /= self.factor()
+                op2 = self.factor()
+                instID = self.ssa.DefineIR(IRTokens.divToken, instID, op2)
             if self.debug:
-                print(f'{" " * self.level * self.spacing}T{self.level}: Current term: {result}')
+                print(f'{" " * self.level * self.spacing}T{self.level}: Current term: {instID}')
         if self.debug:
-            print(f'{" " * self.level * self.spacing}Exit T{self.level}: {result}')
+            print(f'{" " * self.level * self.spacing}Exit T{self.level}: {instID}')
         self.level -= 1
-        return result
+        return instID
 
     def factor(self):
         # factor = designator | number | “(“ expression “)” | funcCall
@@ -239,10 +244,11 @@ class Parser:
         self.level += 1
         if self.debug:
             print(f'{" " * self.level * self.spacing}In F{self.level}')
-
+        currBB = self.ssa.GetCurrBasicBlock()
         # number
         if self.sym == Tokens.number:
-            result = self.t.lastNum
+            #result = self.t.lastNum
+            instID = self.ssa.DefineIR(IRTokens.constToken, currBB, self.t.lastNum)
             self.next()
         # designator = ident{ "[" expression "]" }
         elif self.sym > 255:

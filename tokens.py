@@ -55,3 +55,33 @@ class Tokens(IntEnum):
     beginToken = 150  # '{'
     mainToken = 200  # 'computation'
     eofToken = 255  # end of file
+
+
+class IRTokens(IntEnum):
+    constToken = 1
+
+    addToken = 10
+    subToken = 11
+    mulToken = 12
+    divToken = 13
+    cmpToken = 14
+
+    addaToken = 20
+    loadToken = 21
+    storeToken = 22
+    phiToken = 23
+
+    endToken = 30
+
+    braToken = 40
+    bneToken = 41
+    beqToken = 42
+    bleToken = 43
+    bltToken = 44   # bacon lettuce tomato
+    bgeToken = 45
+    bgtToken = 46
+
+    readToken = 50
+    writeToken = 51
+    writeNLToken = 52
+

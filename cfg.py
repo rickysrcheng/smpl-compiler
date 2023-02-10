@@ -1,3 +1,6 @@
+from tokens import *
+
+
 class InstructionNode:
     def __init__(self, instruction: str = None, operand1: int = None, operand2: int = None,
                  inst_id: int = None, bb_id: int = None):
@@ -15,7 +18,7 @@ class InstructionNode:
         self.instID = inst_id
         self.BB = bb_id
 
-    def setOperands(self, operand1 : int = None, operand2 : int = None):
+    def setOperands(self, operand1: int = None, operand2: int = None):
         """
         Used mainly for branch instructions, since the jump distance is unknown when first generated
         :param operand1:
@@ -27,18 +30,28 @@ class InstructionNode:
         if operand2:
             self.operand2 = operand2
 
+
 class BasicBlock:
-    def __init__(self, bbID: int, valueTable : dict = None):
+    def __init__(self, bbID: int, valueTable: dict = None, parents: list = [], dominators: list = []):
 
         # tables needed for SSA tracking
         self.valueTable = valueTable
-        self.opTables = {"add": [], "sub": [], "mul": [], "div": [], "cmp": [], "phi": []}
+
+        # optable
+        # entry format (instID, op1, op2)
+        #     both op1 and op2 can be None
+        # entries are reverse chronologically ordered
+        self.opTables = {IRTokens.constToken: [],
+                         IRTokens.addToken: [], IRTokens.subToken: [], IRTokens.mulToken: [],
+                         IRTokens.divToken: [], IRTokens.cmpToken: [], IRTokens.phiToken: []}
 
         # for control flow graph
         self.children = []
-        self.parents = []
+        self.parents = parents
 
-        #
+        # by definition, a basic block dominates itself
+        self.dominators = [bbID] + dominators
+
         self.bbID = bbID
 
         # bookkeeping
@@ -49,3 +62,9 @@ class BasicBlock:
 
     def AddParent(self, block):
         self.parents.append(block)
+
+    def AddDominator(self, block):
+        self.dominators.append(block)
+
+    def AddNewOp(self, op, operand1, operand2, instID):
+        pass
