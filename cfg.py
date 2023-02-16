@@ -47,12 +47,14 @@ class BasicBlock:
         # entry format (instID, op1, op2)
         #     both op1 and op2 can be None
         # entries are reverse chronologically ordered
-        self.opTables = {IRTokens.constToken: [],
-                         IRTokens.addToken: [], IRTokens.subToken: [], IRTokens.mulToken: [],
-                         IRTokens.divToken: [], IRTokens.cmpToken: [], IRTokens.phiToken: []}
+        self.opTables = {token: [] for token in IRTokens}
+        # self.opTables = {IRTokens.constToken: [],
+        #                  IRTokens.addToken: [], IRTokens.subToken: [], IRTokens.mulToken: [],
+        #                  IRTokens.divToken: [], IRTokens.cmpToken: [], IRTokens.phiToken: []}
+
 
         # for control flow graph
-        self.children = []
+        self.children = set()
         if parents is None:
             self.parents = []
         else:
@@ -68,11 +70,11 @@ class BasicBlock:
         # bookkeeping
         self.instructions = []
 
-    def AddChild(self, block):
-        self.children.append(block)
+    def AddChild(self, blockID):
+        self.children.add(blockID)
 
-    def AddParent(self, block):
-        self.parents.append(block)
+    def AddParent(self, blockID):
+        self.parents.append(blockID)
 
     def AddDominator(self, block):
         self.dominators.append(block)

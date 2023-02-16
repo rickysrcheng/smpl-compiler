@@ -86,6 +86,8 @@ class Tokenizer:
             '*': Tokens.timesToken
         }
 
+        self.invTokenTable = {v: k for k, v in self.tokenTable.items()}
+
         self.globalKeyword = ['main', 'procedure', 'function', 'void', 'array', 'var',
                               'return', 'while', 'if', 'call', 'let', 'fi', 'od', 'do', 'then']
 
@@ -104,6 +106,9 @@ class Tokenizer:
 
     def close(self):
         self.f.close()
+
+    def GetTokenStr(self, token):
+        return self.invTokenTable[token]
 
     def GetNext(self):
         if self.EOF:
@@ -152,6 +157,7 @@ class Tokenizer:
                 else:
                     token = self.idCounter
                     self.tokenTable[result] = self.idCounter
+                    self.invTokenTable[self.idCounter] = result
                     self.idCounter += 1
 
             self.lastId = token
