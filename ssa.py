@@ -223,8 +223,6 @@ class SSA:
             instID = self.DefineIR(IRTokens.phiToken, joinID, v[0], v[1])
             self.AssignVariable(k, instID, joinID)
 
-
-
     def GetCurrBasicBlock(self):
         return self.CurrentBasicBlock
 

@@ -249,8 +249,27 @@ class Parser:
         self.level -= 1
 
     def whileStatement(self):
+        # whileStatement = "while" relation "do" statSequence "od"
         # TODO Project step 1
-        pass
+        # Main thing, join block is entry block
+        # Need to enter fall-through block to find references to variables
+        #     that need to be reconciled
+        # Q: How to connect the branch statement?
+
+        self.level += 1
+        if self.debug:
+            print(f'{" " * self.level * self.spacing}In whileStatement{self.level}')
+
+        # Get current basic block
+        currBB = self.ssa.GetCurrBasicBlock()
+        currBBDom = self.ssa.GetDomList(currBB)
+        print(currBB, currBBDom)
+
+        # call relation
+        relOp, cmpInstID = self.relation()
+
+        self.CheckFor(Tokens.doToken)
+
 
     def returnStatement(self):
         pass
