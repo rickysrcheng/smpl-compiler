@@ -15,6 +15,11 @@ class SSA:
             IRTokens.mulToken: 'mul',
             IRTokens.divToken: 'div',
             IRTokens.cmpToken: 'cmp',
+            IRTokens.addaToken: 'adda',
+            IRTokens.loadToken: 'load',
+            IRTokens.storeToken: 'store',
+            IRTokens.endToken: 'end',
+            IRTokens.phiToken: 'phi',
             IRTokens.braToken: 'bra',
             IRTokens.bneToken: 'bne',
             IRTokens.beqToken: 'beq',
@@ -22,6 +27,9 @@ class SSA:
             IRTokens.bltToken: 'blt', # bacon lettuce tomato
             IRTokens.bgeToken: 'bge',
             IRTokens.bgtToken: 'bgt',
+
+            IRTokens.nopToken: 'nop',
+            IRTokens.emptyToken: '\\<empty\\>'
         }
 
         self.instructionCount = 0 # always incrementing
@@ -79,7 +87,7 @@ class SSA:
                 self.BBList[bb_id].opTables[operation].insert(0, (instID, operand1, operand2))
         return instID
 
-    def ChangeBranchAddress(self, instID, op1, op2=None):
+    def ChangeOperands(self, instID, op1, op2=None):
         self.instructionList[instID].setOperands(op1, op2)
 
     def FindPreviousInst(self, operation: IRTokens, operand1, operand2, bb_id):
@@ -92,6 +100,7 @@ class SSA:
         :param bb_id:
         :return:
         """
+        # essentially, branch instructions will not need to be used again
         if IRTokens.braToken <= operation <= IRTokens.bgtToken:
             return -1
 
@@ -127,17 +136,18 @@ class SSA:
                     self.BBList[bb_id].valueTable[varToken] = [(n + 1, instID)]
             elif n == -1:
                 self.BBList[bb_id].valueTable[varToken] = [(0, instID)]
-            else:
-                raise Exception("Error assigning variable")
         else:
             raise Exception("Basic block 0 has no variables")
 
     def GetVarInstNode(self, varToken, bb_id: int = -1):
         """
-        Finds the current SSA value of the program variable
+        Finds the latest SSA value of the program variable in a basic block.
+        Will traverse through the dominator blocks if needed.
+
         If variable does not exist, it throws a warning and assigns it with value 0.
+
         :param varToken: variable token
-        :param bb_id:
+        :param bb_id: the basic block to search through
         :return:
         """
         blockID = self.CurrentBasicBlock
@@ -186,13 +196,42 @@ class SSA:
         self.CurrentBasicBlock = BBID
         return BBID
 
+    def ifElsePhi(self, thenID, joinID, elseID=-1):
+        phiInsts = {}
+        thenValTable = self.BBList[thenID].valueTable
+
+        # first reconcile ifs with dominating blocks
+        # then we loop through else blocks, if it exists
+        for k, v in thenValTable.items():
+            prevSSA = self.GetVarInstNode(k, self.BBList[thenID].dominators[1])
+            print(k, v, prevSSA)
+            phiInsts[k] = (v[0][1], prevSSA)
+
+        if elseID != -1:
+            elseValTable = self.BBList[elseID].valueTable
+            for k, v in elseValTable.items():
+                prevSSA = self.GetVarInstNode(k, self.BBList[elseID].dominators[1])
+                print(k, v, prevSSA)
+                if k in phiInsts:
+                    thenInst = phiInsts[k][0]
+                    phiInsts[k] = (thenInst, v[0][1])
+                else:
+                    phiInsts[k] = (prevSSA, v[0][1])
+        print(phiInsts)
+        for k, v in phiInsts.items():
+            print(v)
+            instID = self.DefineIR(IRTokens.phiToken, joinID, v[0], v[1])
+            self.AssignVariable(k, instID, joinID)
+
+
+
     def GetCurrBasicBlock(self):
         return self.CurrentBasicBlock
 
     def GetFirstInstInBlock(self, bbID):
         if len(self.BBList[bbID].instructions) > 0:
             return self.BBList[bbID].instructions[0]
-        return self.BBList[bbID].valueTable[0]
+        return -1
 
     def AddBlockChild(self, parentBBID, childBBID):
         if parentBBID > len(self.BBList):
@@ -202,6 +241,9 @@ class SSA:
 
     def GetDomList(self, BBID):
         return self.BBList[BBID].dominators
+
+    def GetBlockInsts(self, BBID):
+        return self.BBList[BBID].instructions
 
     def GetValueTable(self, BBID):
         return self.BBList[BBID].valueTable
@@ -235,4 +277,54 @@ class SSA:
         domSect = []
 
         for block in self.BBList:
-            blockInfo = f"bb{block.bbID}[shape=record, label=\"<b>BB{block.bbID}|"
+            blockInfo = f"\tbb{block.bbID}[shape=record, label=\"<b>BB{block.bbID}|{{"
+            lenInst = len(block.instructions)
+            for i in range(lenInst):
+                inst = self.instructionList[block.instructions[i]]
+                op1 = ""
+                op2 = ""
+                if inst.operand1 is not None:
+                    if inst.instruction == IRTokens.constToken:
+                        op1 = f' #{inst.operand1}'
+                    else:
+                        op1 = f' ({inst.operand1})'
+                if inst.operand2 is not None:
+                    op2 = f' ({inst.operand2})'
+
+                instInfo = f"{inst.instID}: {self.opDct[inst.instruction]}{op1}{op2}"
+                if i < len(block.instructions) - 1:
+                    instInfo += "|"
+                blockInfo += instInfo
+            blockInfo += "}\"];"
+            blockSect.append(blockInfo)
+
+            for parent in block.parents:
+                edgeInfo = f"\tbb{parent}:s -> bb{block.bbID}:n"
+                parentBlock = self.BBList[parent]
+                parentLastInst = -1
+                if len(parentBlock.instructions) > 0:
+                    parentLastInst = self.instructionList[parentBlock.instructions[-1]]
+                blockFirstInst = -1
+                if len(block.instructions) > 0:
+                    blockFirstInst = self.instructionList[block.instructions[0]]
+
+                if type(parentLastInst) != int and type(blockFirstInst) != int:
+                    if parentLastInst.instruction == 40:
+                        if parentLastInst.operand1 == blockFirstInst.instID:
+                            edgeInfo += "[label=\"branch\"]"
+                    elif 40 < parentLastInst.instruction < 47:
+                        if parentLastInst.operand2 == blockFirstInst.instID:
+                            edgeInfo += "[label=\"branch\"]"
+                        else:
+                            edgeInfo += "[label=\"fall-through\"]"
+
+                edgeInfo += ";"
+                dagSect.append(edgeInfo)
+
+            for domID in block.dominators:
+                if domID != block.bbID and domID > 0:
+                    domInfo = f"\tbb{domID}:b -> bb{block.bbID}:b [color=blue, style=dotted, label=\"dom\"];"
+                    domSect.append(domInfo)
+        separator = "\n"
+        dot = f'digraph G {{\n{separator.join(blockSect)}\n\n{separator.join(dagSect)}\n{separator.join(domSect)} \n}}'
+        print(dot)

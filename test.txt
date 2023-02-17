@@ -1,17 +1,10 @@
 main
 var a, b, c; {
+    let c <- 0;
 	let a <- 6;
 	let b <- a + a*5;
-	let c <- 0
 	if a > 0 then
-	    let c <- b - a
-	    if c > 2 then
-	        let c <- b * b;
-	    else
-	        let c <- a * a
-	    fi
-	else
-	    let c <- a + b
+        let c<-a+b;
 	fi
 
 }.

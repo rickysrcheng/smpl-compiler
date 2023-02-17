@@ -85,3 +85,6 @@ class IRTokens(IntEnum):
     writeToken = 51
     writeNLToken = 52
 
+    nopToken = 60
+    emptyToken = 61
+

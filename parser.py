@@ -36,6 +36,9 @@ class Parser:
         self.ssa.PrintInstructions()
         self.ssa.PrintBlocks()
 
+    def GenerateDot(self):
+        self.ssa.GenerateDot()
+
     # def template(self):
     #	  self.level += 1
     #     if self.debug:
@@ -198,27 +201,48 @@ class Parser:
         # check for else block
         elseExist = False
         joinParent = [latestThenID]
+        latestElseID = -1
         if self.sym == Tokens.elseToken:
             self.next()
             elseExist = True
-            jmpID = self.ssa.DefineIR(IRTokens.braToken, thenID, 0, 0)
+
+            # this branches straight to join block
+            jmpID = self.ssa.DefineIR(IRTokens.braToken, latestThenID, 0)
 
             elseID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB])
             self.ssa.AddBlockChild(currBB, elseID)
-
             self.statSequence()
 
             latestElseID = self.ssa.GetCurrBasicBlock()
+
+            # after returning, connect the branch instruction
+            # if else block has no instruction, set a nop instruction
+            elseFirstInst = self.ssa.GetFirstInstInBlock(elseID)
+            if elseFirstInst == -1:
+                elseFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, elseID)
+
+            self.ssa.ChangeOperands(braInstID, cmpInstID, elseFirstInst)
+
             joinParent.append(latestElseID)
 
         self.CheckFor(Tokens.fiToken)
-        self.ssa.PrintInstructions()
+
         # Create join block and add phi nodes
         # Yes, in lecture phi is generated as we go.
         joinID = self.ssa.CreateNewBasicBlock(currBBDom, joinParent)
         self.ssa.AddBlockChild(latestThenID, joinID)
+
+        self.ssa.ifElsePhi(latestThenID, joinID, latestElseID)
+
+        joinFirstInstID = self.ssa.GetFirstInstInBlock(joinID)
+        if joinFirstInstID == -1:
+            joinFirstInstID = self.ssa.DefineIR(IRTokens.emptyToken, joinID)
+
         if elseExist:
             self.ssa.AddBlockChild(latestElseID, joinID)
+            self.ssa.ChangeOperands(jmpID, joinFirstInstID)
+        else:
+            self.ssa.ChangeOperands(braInstID, cmpInstID, joinFirstInstID)
 
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit ifStatement{self.level}')
@@ -244,7 +268,7 @@ class Parser:
 
         if self.sym not in self.relOp:
             self.t.close()
-            raise SyntaxError(f'Expected relOp, got {self.sym}')
+            raise SyntaxError(f'Expected relOp, got {self.t.GetTokenStr(self.sym)}')
 
         relOp = self.sym
         self.next()
@@ -349,4 +373,5 @@ if __name__ == '__main__':
     comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()
+    comp.GenerateDot()
     comp.close()
