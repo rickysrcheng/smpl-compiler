@@ -10,7 +10,7 @@ class Parser:
         self.sym = None
         self.debug = debug
 
-        self.identTable = {}
+        self.identTable = []
         self.level = 0
         self.spacing = 2
 
@@ -34,10 +34,10 @@ class Parser:
 
     def PrintSSA(self):
         self.ssa.PrintInstructions()
-        self.ssa.PrintBlocks()
+        self.ssa.PrintBlocks(self.t)
 
     def GenerateDot(self):
-        self.ssa.GenerateDot()
+        self.ssa.GenerateDot(self.t)
 
     # def template(self):
     #	  self.level += 1
@@ -69,7 +69,7 @@ class Parser:
 
             if not endVarDecl:
                 if self.sym > 255:
-                    self.identTable[self.sym] = None
+                    self.identTable.append(self.sym)
                     self.next()
                 else:
                     self.t.close()
@@ -96,6 +96,7 @@ class Parser:
         self.CheckFor(Tokens.endToken)
 
         self.CheckFor(Tokens.periodToken)
+        self.ssa.DefineIR(IRTokens.endToken, self.ssa.GetCurrBasicBlock())
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit C{self.level}')
 
@@ -112,18 +113,22 @@ class Parser:
                 self.next()
                 self.assignment()
             elif self.sym == Tokens.callToken:
-                pass
+                self.next()
+                self.funcCall()
             elif self.sym == Tokens.ifToken:
                 self.next()
                 self.ifStatement()
             elif self.sym == Tokens.whileToken:
-                pass
+                self.next()
+                self.whileStatement()
             elif self.sym == Tokens.returnToken:
                 pass
-            elif self.sym == Tokens.semiToken:
-                self.next()
-            else:
+
+            # don't need semicolon in terminating cases
+            if self.sym in [Tokens.elseToken, Tokens.fiToken, Tokens.odToken, Tokens.endToken]:
                 break
+            else:
+                self.CheckFor(Tokens.semiToken)
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit statSequence{self.level}')
         self.level -= 1
@@ -153,7 +158,33 @@ class Parser:
         return
 
     def funcCall(self):
-        pass
+        # funcCall = “call” ident [2 “(“ [expression { “,” expression } ] “)” ].
+
+        # three first cases are predefined functions
+        if self.sym == Tokens.inputNumToken:
+            self.next()
+            if self.sym == Tokens.openparenToken:
+                self.next()
+                self.CheckFor(Tokens.closeparenToken)
+            instID = self.ssa.DefineIR(IRTokens.readToken, self.ssa.GetCurrBasicBlock())
+            return instID
+        elif self.sym == Tokens.outputNewLineToken:
+            self.next()
+            if self.sym == Tokens.openparenToken:
+                self.next()
+                self.CheckFor(Tokens.closeparenToken)
+            instID = self.ssa.DefineIR(IRTokens.writeNLToken, self.ssa.GetCurrBasicBlock())
+            return instID
+        elif self.sym == Tokens.outputNumToken:
+            self.next()
+            self.CheckFor(Tokens.openparenToken)
+            opID = self.expression()
+            instID = self.ssa.DefineIR(IRTokens.writeToken, self.ssa.GetCurrBasicBlock(), opID)
+            self.CheckFor(Tokens.closeparenToken)
+        else:
+            instID = 0
+            pass
+        return instID
 
     def ifStatement(self):
         # ifStatement = “if” relation “then” statSequence [ “else” statSequence ] “fi”.
@@ -173,18 +204,18 @@ class Parser:
         self.CheckFor(Tokens.thenToken)
 
         # add branch and save its id
-        if relOp == Tokens.eqlToken:
-            braInstID = self.ssa.DefineIR(IRTokens.beqToken, currBB, cmpInstID, 0)
-        elif relOp == Tokens.neqToken:
+        if relOp == Tokens.eqlToken:    # ==
             braInstID = self.ssa.DefineIR(IRTokens.bneToken, currBB, cmpInstID, 0)
-        elif relOp == Tokens.lssToken:
-            braInstID = self.ssa.DefineIR(IRTokens.bltToken, currBB, cmpInstID, 0)
-        elif relOp == Tokens.leqToken:
-            braInstID = self.ssa.DefineIR(IRTokens.bleToken, currBB, cmpInstID, 0)
-        elif relOp == Tokens.gtrToken:
-            braInstID = self.ssa.DefineIR(IRTokens.bgtToken, currBB, cmpInstID, 0)
-        elif relOp == Tokens.geqToken:
+        elif relOp == Tokens.neqToken:  # !=
+            braInstID = self.ssa.DefineIR(IRTokens.beqToken, currBB, cmpInstID, 0)
+        elif relOp == Tokens.lssToken:  # <
             braInstID = self.ssa.DefineIR(IRTokens.bgeToken, currBB, cmpInstID, 0)
+        elif relOp == Tokens.leqToken:  # <=
+            braInstID = self.ssa.DefineIR(IRTokens.bgtToken, currBB, cmpInstID, 0)
+        elif relOp == Tokens.gtrToken:  # >
+            braInstID = self.ssa.DefineIR(IRTokens.bleToken, currBB, cmpInstID, 0)
+        elif relOp == Tokens.geqToken:  # >=
+            braInstID = self.ssa.DefineIR(IRTokens.bltToken, currBB, cmpInstID, 0)
 
         # create new block and go to statSequence
         thenID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB])
@@ -196,11 +227,14 @@ class Parser:
         # retrieve the latest block
         # since statSequence could contain new ifStatement/whileStatement flows
         latestThenID = self.ssa.GetCurrBasicBlock()
+        thenFirstInst = self.ssa.GetFirstInstInBlock(thenID)
+        # if thenFirstInst == -1:
+        #     thenFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, thenID)
         # end then block
 
         # check for else block
         elseExist = False
-        joinParent = [latestThenID]
+        joinParent = [latestThenID, currBB]
         latestElseID = -1
         if self.sym == Tokens.elseToken:
             self.next()
@@ -223,7 +257,12 @@ class Parser:
 
             self.ssa.ChangeOperands(braInstID, cmpInstID, elseFirstInst)
 
+            joinParent.remove(currBB)
             joinParent.append(latestElseID)
+
+        if not elseExist:
+            if thenFirstInst == -1:
+                thenFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, thenID)
 
         self.CheckFor(Tokens.fiToken)
 
@@ -232,7 +271,7 @@ class Parser:
         joinID = self.ssa.CreateNewBasicBlock(currBBDom, joinParent)
         self.ssa.AddBlockChild(latestThenID, joinID)
 
-        self.ssa.ifElsePhi(latestThenID, joinID, latestElseID)
+        self.ssa.ifElsePhi(latestThenID, joinID, currBB, self.identTable, latestElseID)
 
         joinFirstInstID = self.ssa.GetFirstInstInBlock(joinID)
         if joinFirstInstID == -1:
@@ -242,6 +281,7 @@ class Parser:
             self.ssa.AddBlockChild(latestElseID, joinID)
             self.ssa.ChangeOperands(jmpID, joinFirstInstID)
         else:
+            self.ssa.AddBlockChild(currBB, joinID)
             self.ssa.ChangeOperands(braInstID, cmpInstID, joinFirstInstID)
 
         if self.debug:
@@ -261,15 +301,57 @@ class Parser:
             print(f'{" " * self.level * self.spacing}In whileStatement{self.level}')
 
         # Get current basic block
-        currBB = self.ssa.GetCurrBasicBlock()
-        currBBDom = self.ssa.GetDomList(currBB)
-        print(currBB, currBBDom)
+        entryBB = self.ssa.GetCurrBasicBlock()
+        entryBBDom = self.ssa.GetDomList(entryBB)
+        print(entryBB, entryBBDom)
+
+        if self.ssa.GetFirstInstInBlock(entryBB) == -1:
+            entryFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, entryBB)
+
+        # create join block
+        joinBB = self.ssa.CreateNewBasicBlock(entryBBDom, [entryBB])
+        joinBBDom = self.ssa.GetDomList(joinBB)
 
         # call relation
         relOp, cmpInstID = self.relation()
 
+        # add branch and save its id
+        if relOp == Tokens.eqlToken:    # ==
+            braInstID = self.ssa.DefineIR(IRTokens.bneToken, joinBB, cmpInstID, 0)
+        elif relOp == Tokens.neqToken:  # !=
+            braInstID = self.ssa.DefineIR(IRTokens.beqToken, joinBB, cmpInstID, 0)
+        elif relOp == Tokens.lssToken:  # <
+            braInstID = self.ssa.DefineIR(IRTokens.bgeToken, joinBB, cmpInstID, 0)
+        elif relOp == Tokens.leqToken:  # <=
+            braInstID = self.ssa.DefineIR(IRTokens.bgtToken, joinBB, cmpInstID, 0)
+        elif relOp == Tokens.gtrToken:  # >
+            braInstID = self.ssa.DefineIR(IRTokens.bleToken, joinBB, cmpInstID, 0)
+        elif relOp == Tokens.geqToken:  # >=
+            braInstID = self.ssa.DefineIR(IRTokens.bltToken, joinBB, cmpInstID, 0)
+
         self.CheckFor(Tokens.doToken)
 
+        # doBlock
+        doBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB])
+
+        # connect join block with do block for loop body
+        self.ssa.AddBlockParent(joinBB, doBB)
+        self.ssa.AddBlockChild(doBB, joinBB)
+
+        self.statSequence()
+
+        # get the latest block from statSequence, need to add an unconditional branch
+        latestDoBB = self.ssa.GetCurrBasicBlock()
+        self.CheckFor(Tokens.odToken)
+
+        # reconcile phi function
+        self.ssa.whilePhi(joinBB, latestDoBB, self.identTable)
+
+        joinFirstID = self.ssa.GetFirstInstInBlock(joinBB)
+        self.ssa.DefineIR(IRTokens.braToken, latestDoBB, joinFirstID)
+
+        exitBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB])
+        self.ssa.ChangeOperands(braInstID, cmpInstID, f'BB{exitBB}')
 
     def returnStatement(self):
         pass
@@ -380,7 +462,8 @@ class Parser:
             self.CheckFor(Tokens.closeparenToken)
         # funcCall
         elif self.sym == Tokens.callToken:
-            pass
+            self.next()
+            instID = self.funcCall()
 
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit F{self.level}: {instID}')
@@ -389,7 +472,8 @@ class Parser:
 
 
 if __name__ == '__main__':
-    comp = Parser("./test.txt", True)
+    comp = Parser("./tests/whileTests/while.txt", True)
+    #comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()
     comp.GenerateDot()

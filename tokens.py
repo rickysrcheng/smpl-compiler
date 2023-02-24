@@ -54,6 +54,11 @@ class Tokens(IntEnum):
 
     beginToken = 150  # '{'
     mainToken = 200  # 'computation'
+
+    inputNumToken = 210  # InputNum
+    outputNumToken = 211  # OutputNum
+    outputNewLineToken = 212  # OutputNewLine
+
     eofToken = 255  # end of file
 
 
@@ -87,4 +92,5 @@ class IRTokens(IntEnum):
 
     nopToken = 60
     emptyToken = 61
+
 

@@ -75,7 +75,8 @@ class BasicBlock:
         self.children.add(blockID)
 
     def AddParent(self, blockID):
-        self.parents.append(blockID)
+        if blockID not in self.parents:
+            self.parents.append(blockID)
 
     def AddDominator(self, block):
         self.dominators.append(block)

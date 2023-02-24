@@ -34,6 +34,10 @@ class Tokenizer:
         self.sym = ""
         self.__next()
         self.tokenTable = {
+            'OutputNewLine': Tokens.outputNewLineToken,
+            'OutputNum': Tokens.outputNumToken,
+            'InputNum': Tokens.inputNumToken,
+
             'main': Tokens.mainToken,
             '{': Tokens.beginToken,
 
