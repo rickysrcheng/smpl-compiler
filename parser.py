@@ -420,7 +420,7 @@ class Parser:
         currBB = self.ssa.GetCurrBasicBlock()
         # if self.debug:
         #     print(f'{" " * self.level * self.spacing}T{self.level}: Factor 1: {result}')
-
+        operands = []
         while self.sym == Tokens.timesToken or self.sym == Tokens.divToken:
             op1 = instID
             if self.sym == Tokens.timesToken:
@@ -442,6 +442,7 @@ class Parser:
         # factor = designator | number | “(“ expression “)” | funcCall
 
         self.level += 1
+        token = 0
         if self.debug:
             print(f'{" " * self.level * self.spacing}In F{self.level}')
         currBB = self.ssa.GetCurrBasicBlock()
@@ -453,6 +454,7 @@ class Parser:
         # designator = ident{ "[" expression "]" }
         elif self.sym > 255:
             # result = self.identTable[self.sym]
+            token = self.sym
             instID = self.ssa.GetVarInstNode(self.sym, currBB)
             self.next()
         # “(“ expression “)”
@@ -468,7 +470,7 @@ class Parser:
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit F{self.level}: {instID}')
         self.level -= 1
-        return instID
+        return instID, token
 
 
 if __name__ == '__main__':
