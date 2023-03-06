@@ -2,8 +2,8 @@ from tokens import *
 
 
 class InstructionNode:
-    def __init__(self, instruction: str = None, operand1: int = None, operand2: int = None,
-                 inst_id: int = None, bb_id: int = None):
+    def __init__(self, instruction: IRTokens = None, operand1: int = None, operand2: int = None,
+                 inst_id: int = None, bb_id: int = None, firstVarPair: tuple = None):
         """
         Initializes an instruction node. Most private variables should not be changed after initializing.
         :param instruction:
@@ -17,6 +17,9 @@ class InstructionNode:
         self.operand2 = operand2
         self.instID = inst_id
         self.BB = bb_id
+        self.dependency = []
+        self.firstVarPair = firstVarPair
+        self.eliminate = False
 
     def setOperands(self, operand1: int = None, operand2: int = None):
         """
@@ -30,12 +33,19 @@ class InstructionNode:
         if operand2:
             self.operand2 = operand2
 
+    def setFirstVarPair(self, tup):
+        self.firstVarPair = tup
+
+    def addVarDependency(self, var):
+        self.dependency.append(var)
+
     def PrintInstruction(self):
         print(f'{self.instID} {self.instruction} {self.operand1} {self.operand2} {self.BB}')
 
 
 class BasicBlock:
-    def __init__(self, bbID: int, valueTable: dict = None, parents: list = None, dominators: list = None, type = None):
+    def __init__(self, bbID: int, valueTable: dict = None, parents: list = None,
+                 dominators: list = None, blockType=None):
 
         # tables needed for SSA tracking
         if valueTable is None:
@@ -52,7 +62,6 @@ class BasicBlock:
         #                  IRTokens.addToken: [], IRTokens.subToken: [], IRTokens.mulToken: [],
         #                  IRTokens.divToken: [], IRTokens.cmpToken: [], IRTokens.phiToken: []}
 
-
         # for control flow graph
         self.children = set()
         if parents is None:
@@ -68,7 +77,7 @@ class BasicBlock:
         self.bbID = bbID
 
         # bookkeeping
-        self.type = type
+        self.type = blockType
         self.instructions = []
 
     def AddChild(self, blockID):

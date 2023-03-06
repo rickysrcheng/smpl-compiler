@@ -18,7 +18,7 @@ class Parser:
                       Tokens.geqToken, Tokens.leqToken,
                       Tokens.gtrToken, Tokens.lssToken]
 
-        self.ssa = ssa.SSA()
+        self.ssa = ssa.SSA(self.t)
 
     def next(self):
         self.sym = self.t.GetNext()
@@ -36,8 +36,8 @@ class Parser:
         self.ssa.PrintInstructions()
         self.ssa.PrintBlocks(self.t)
 
-    def GenerateDot(self):
-        self.ssa.GenerateDot(self.t)
+    def GenerateDot(self, varMode=False, debugMode=False):
+        return self.ssa.GenerateDot(self.t, varMode, debugMode)
 
     # def template(self):
     #	  self.level += 1
@@ -62,7 +62,7 @@ class Parser:
         endVarDecl = True
         while self.sym != Tokens.funcToken and self.sym != Tokens.beginToken:
             # typeDecl = “var” | “array” “[“ number “]” { “[“ number “]”}
-            print(self.t.GetTokenStr(self.sym))
+            #print(self.t.GetTokenStr(self.sym))
             if self.sym == Tokens.varToken:
                 self.next()
                 endVarDecl = False
@@ -149,9 +149,13 @@ class Parser:
         self.CheckFor(Tokens.becomesToken)
 
         currBB = self.ssa.GetCurrBasicBlock()
-        instNode = self.expression()
-        self.ssa.AssignVariable(ident, instNode, currBB)
-        print(f'Assigning {self.t.GetTokenStr(ident)} to {instNode}')
+        instNode, instList, operands = self.expression()
+        (version, inst, op) = self.ssa.AssignVariable(ident, instNode, currBB, instList)
+        if self.debug:
+            print(f'Assigning {self.t.GetTokenStr(ident)} to {instNode}, {operands}')
+            print(f'Dependency of {self.t.GetTokenStr(ident)} {instList}')
+        for n in instList:
+            self.ssa.AddInstDependency(n[0], (version, ident))
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit assignment{self.level}')
         self.level -= 1
@@ -196,7 +200,6 @@ class Parser:
         # Get current basic block
         currBB = self.ssa.GetCurrBasicBlock()
         currBBDom = self.ssa.GetDomList(currBB)
-        print(currBB, currBBDom)
 
         # call relation
         relOp, cmpInstID = self.relation()
@@ -219,7 +222,7 @@ class Parser:
 
         # create new block and go to statSequence
         thenID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB])
-        print(self.ssa.GetCurrBasicBlock(), self.ssa.GetDomList(thenID))
+       # print(self.ssa.GetCurrBasicBlock(), self.ssa.GetDomList(thenID))
         self.ssa.AddBlockChild(currBB, thenID)
 
         self.statSequence()
@@ -260,6 +263,8 @@ class Parser:
             joinParent.remove(currBB)
             joinParent.append(latestElseID)
 
+        # if there's no else block, then the if block falls through with no branch instruction
+        # if there are no instructions inside, add it
         if not elseExist:
             if thenFirstInst == -1:
                 thenFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, thenID)
@@ -303,7 +308,7 @@ class Parser:
         # Get current basic block
         entryBB = self.ssa.GetCurrBasicBlock()
         entryBBDom = self.ssa.GetDomList(entryBB)
-        print(entryBB, entryBBDom)
+        #print(entryBB, entryBBDom)
 
         if self.ssa.GetFirstInstInBlock(entryBB) == -1:
             entryFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, entryBB)
@@ -337,6 +342,7 @@ class Parser:
         # connect join block with do block for loop body
         self.ssa.AddBlockParent(joinBB, doBB)
         self.ssa.AddBlockChild(doBB, joinBB)
+        self.ssa.AddBlockChild(joinBB, doBB)
 
         self.statSequence()
 
@@ -365,7 +371,7 @@ class Parser:
             print(f'{" " * self.level * self.spacing}In relation{self.level}')
 
         currBB = self.ssa.GetCurrBasicBlock()
-        ex1 = self.expression()
+        ex1, instList2, var1 = self.expression()
 
         if self.sym not in self.relOp:
             self.t.close()
@@ -374,9 +380,9 @@ class Parser:
         relOp = self.sym
         self.next()
 
-        ex2 = self.expression()
+        ex2, instList2, var2 = self.expression()
 
-        cmpInstID = self.ssa.DefineIR(IRTokens.cmpToken, currBB, ex1, ex2)
+        cmpInstID = self.ssa.DefineIR(IRTokens.cmpToken, currBB, ex1, ex2, var1=var1, var2=var2)
 
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit relation{self.level}')
@@ -389,88 +395,108 @@ class Parser:
         self.level += 1
         if self.debug:
             print(f'{" " * self.level * self.spacing}In E{self.level}')
-        instID = self.term()
+        instID, instList, var = self.term()
         currBB = self.ssa.GetCurrBasicBlock()
         if self.debug:
             print(f'{" " * self.level * self.spacing}E{self.level}: Term 1: {instID}')
         while self.sym == Tokens.plusToken or self.sym == Tokens.minusToken:
             op1 = instID
+
             if self.sym == Tokens.plusToken:
                 self.next()
-                op2 = self.term()
-                instID = self.ssa.DefineIR(IRTokens.addToken, currBB, op1, op2)
+                op2, instList2, var2 = self.term()
+                instID = self.ssa.DefineIR(IRTokens.addToken, currBB, op1, op2, var1=var, var2=var2)
+                instList += instList2
+                instList.append((instID, var, var2))
+
             elif self.sym == Tokens.minusToken:
                 self.next()
-                op2 = self.term()
-                instID = self.ssa.DefineIR(IRTokens.subToken, currBB, op1, op2)
-
+                op2, instList2, var2 = self.term()
+                instID = self.ssa.DefineIR(IRTokens.subToken, currBB, op1, op2, var1=var, var2=var2)
+                instList += instList2
+                instList.append((instID, var, var2))
+            var = (2, instID)
             if self.debug:
-                print(f'{" " * self.level * self.spacing}E{self.level}: Current expression: {instID} {op1} {op2}')
+                opvar = instList
+                print(f'{" " * self.level * self.spacing}E{self.level}: Current expression: {instID} {op1} {op2}, {opvar}')
+
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit E{self.level}: {instID}')
         self.level -= 1
-        return instID
+        return instID, instList, var
 
     def term(self):
         # term = factor { (“*” | “/”) factor}
         self.level += 1
         if self.debug:
             print(f'{" " * self.level * self.spacing}In T{self.level}')
-        instID = self.factor()
+
+        instID, instList, var = self.factor()
         currBB = self.ssa.GetCurrBasicBlock()
         # if self.debug:
         #     print(f'{" " * self.level * self.spacing}T{self.level}: Factor 1: {result}')
-        operands = []
+
         while self.sym == Tokens.timesToken or self.sym == Tokens.divToken:
             op1 = instID
             if self.sym == Tokens.timesToken:
                 self.next()
-                op2 = self.factor()
-                instID = self.ssa.DefineIR(IRTokens.mulToken, currBB, instID, op2)
+                op2, instList2, var2 = self.factor()
+                instID = self.ssa.DefineIR(IRTokens.mulToken, currBB, instID, op2, var1=var, var2=var2)
+                instList += instList2
+                instList.append((instID, var, var2))
             elif self.sym == Tokens.divToken:
                 self.next()
-                op2 = self.factor()
-                instID = self.ssa.DefineIR(IRTokens.divToken, currBB, instID, op2)
+                op2, instList2, var2 = self.factor()
+                instID = self.ssa.DefineIR(IRTokens.divToken, currBB, instID, op2, var1=var, var2=var2)
+                instList += instList2
+                instList.append((instID, var, var2))
+            var = (2, instID)
             if self.debug:
-                print(f'{" " * self.level * self.spacing}T{self.level}: Current term: {instID} {op1} {op2}')
+                opvar = instList
+                print(f'{" " * self.level * self.spacing}T{self.level}: Current term: {instID} {op1} {op2}, {opvar}')
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit T{self.level}: {instID}')
         self.level -= 1
-        return instID
+        return instID, instList, var
 
     def factor(self):
         # factor = designator | number | “(“ expression “)” | funcCall
 
         self.level += 1
-        token = 0
+        operands = None
         if self.debug:
             print(f'{" " * self.level * self.spacing}In F{self.level}')
         currBB = self.ssa.GetCurrBasicBlock()
+        instList = []
         # number
         if self.sym == Tokens.number:
             # result = self.t.lastNum
             instID = self.ssa.DefineIR(IRTokens.constToken, currBB, self.t.lastNum)
+            operands = (0, instID)
             self.next()
         # designator = ident{ "[" expression "]" }
         elif self.sym > 255:
             # result = self.identTable[self.sym]
-            token = self.sym
             instID = self.ssa.GetVarInstNode(self.sym, currBB)
+            varVersion = self.ssa.GetVarVersion(self.sym, currBB)
+            operands = (1, (varVersion[0], self.sym))
             self.next()
         # “(“ expression “)”
         elif self.sym == Tokens.openparenToken:
             self.next()
-            instID = self.expression()
+            instID, instList, operands = self.expression()
+            operands = (2, instID)
             self.CheckFor(Tokens.closeparenToken)
         # funcCall
         elif self.sym == Tokens.callToken:
             self.next()
-            instID = self.funcCall()
+            instID, operands = self.funcCall()
+            operands = (2, instID)
 
         if self.debug:
-            print(f'{" " * self.level * self.spacing}Exit F{self.level}: {instID}')
+            print(f'{" " * self.level * self.spacing}Exit F{self.level}: {instID} {instList} {operands}')
         self.level -= 1
-        return instID, token
+        return instID, instList, operands
 
 
 if __name__ == '__main__':
@@ -478,5 +504,6 @@ if __name__ == '__main__':
     #comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()
-    comp.GenerateDot()
+    dot = comp.GenerateDot(varMode=True, debugMode=True)
+
     comp.close()
