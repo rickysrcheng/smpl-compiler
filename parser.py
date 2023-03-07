@@ -19,6 +19,7 @@ class Parser:
                       Tokens.gtrToken, Tokens.lssToken]
 
         self.ssa = ssa.SSA(self.t)
+        self.joinStack = []
 
     def next(self):
         self.sym = self.t.GetNext()
@@ -151,6 +152,8 @@ class Parser:
         currBB = self.ssa.GetCurrBasicBlock()
         instNode, instList, operands = self.expression()
         (version, inst, op) = self.ssa.AssignVariable(ident, instNode, currBB, instList)
+        self.ssa.AddPhiNode(ident, inst, self.joinStack)
+
         if self.debug:
             print(f'Assigning {self.t.GetTokenStr(ident)} to {instNode}, {operands}')
             print(f'Dependency of {self.t.GetTokenStr(ident)} {instList}')
@@ -225,19 +228,26 @@ class Parser:
        # print(self.ssa.GetCurrBasicBlock(), self.ssa.GetDomList(thenID))
         self.ssa.AddBlockChild(currBB, thenID)
 
+        joinID = self.ssa.CreateNewBasicBlock(currBBDom, [])
+
+        self.ssa.SetCurrBasicBlock(thenID)
+        self.joinStack.append((0, joinID, currBB))
         self.statSequence()
+        self.joinStack.pop()
 
         # retrieve the latest block
         # since statSequence could contain new ifStatement/whileStatement flows
         latestThenID = self.ssa.GetCurrBasicBlock()
         thenFirstInst = self.ssa.GetFirstInstInBlock(thenID)
+        self.ssa.AddBlockParent(joinID, latestThenID)
+        self.ssa.AddBlockChild(latestThenID, joinID)
         # if thenFirstInst == -1:
         #     thenFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, thenID)
         # end then block
 
         # check for else block
         elseExist = False
-        joinParent = [latestThenID, currBB]
+        joinParent = currBB
         latestElseID = -1
         if self.sym == Tokens.elseToken:
             self.next()
@@ -248,7 +258,9 @@ class Parser:
 
             elseID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB])
             self.ssa.AddBlockChild(currBB, elseID)
+            self.joinStack.append((1, joinID, currBB))
             self.statSequence()
+            self.joinStack.pop()
 
             latestElseID = self.ssa.GetCurrBasicBlock()
 
@@ -260,8 +272,7 @@ class Parser:
 
             self.ssa.ChangeOperands(braInstID, cmpInstID, elseFirstInst)
 
-            joinParent.remove(currBB)
-            joinParent.append(latestElseID)
+            joinParent = latestThenID
 
         # if there's no else block, then the if block falls through with no branch instruction
         # if there are no instructions inside, add it
@@ -273,8 +284,9 @@ class Parser:
 
         # Create join block and add phi nodes
         # Yes, in lecture phi is generated as we go.
-        joinID = self.ssa.CreateNewBasicBlock(currBBDom, joinParent)
-        self.ssa.AddBlockChild(latestThenID, joinID)
+        #joinID = self.ssa.CreateNewBasicBlock(currBBDom, joinParent)
+        self.ssa.AddBlockParent(joinID, joinParent)
+        self.ssa.AddBlockChild(joinParent, joinID)
 
         self.ssa.ifElsePhi(latestThenID, joinID, currBB, self.identTable, latestElseID)
 
@@ -288,7 +300,7 @@ class Parser:
         else:
             self.ssa.AddBlockChild(currBB, joinID)
             self.ssa.ChangeOperands(braInstID, cmpInstID, joinFirstInstID)
-
+        self.ssa.SetCurrBasicBlock(joinID)
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit ifStatement{self.level}')
         self.level -= 1
@@ -504,7 +516,7 @@ class Parser:
 
 
 if __name__ == '__main__':
-    comp = Parser("./tests/whileTests/nestedwhile/basicNestedWhile.txt", True)
+    comp = Parser("./tests/ifTests/iftest.txt", True)
     #comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()

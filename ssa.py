@@ -244,6 +244,22 @@ class SSA:
         self.CurrentBasicBlock = BBID
         return BBID
 
+    def AddPhiNode(self, identToken, firstSSA, joinBlocks):
+        ssaVal = firstSSA
+        for opType, joinID, entryID in joinBlocks:
+            print(opType, joinID, entryID)
+            phiInstNode = self.GetVarVersion(identToken, joinID)
+            if phiInstNode == (-1, -1, -1):
+                if opType == 0:
+                    op1 = ssaVal
+                    op2 = self.GetVarInstNode(identToken, entryID)
+                else:
+                    op1 = self.GetVarInstNode(identToken, entryID)
+                    op2 = ssaVal
+                print(f"INSERT PHI {op1} {op2}")
+            print(phiInstNode)
+
+
     def ifElsePhi(self, thenID, joinID, entryID, varEntries, elseID=-1):
         phiInsts = {}
         thenValTable = self.BBList[thenID].valueTable
@@ -269,10 +285,10 @@ class SSA:
                     print('here')
                     phiInsts[var] = (entrySSA[1], elseSSA[1])
 
-        # for k, v in thenValTable.items():
-        #     prevSSA = self.GetVarInstNode(k, self.BBList[thenID].dominators[1])
-        #     print(k, v, prevSSA)
-        #     phiInsts[k] = (v[0][1], prevSSA)
+        for k, v in thenValTable.items():
+            prevSSA = self.GetVarInstNode(k, self.BBList[thenID].dominators[1])
+            print(k, v, prevSSA)
+            phiInsts[k] = (v[0][1], prevSSA)
 
         print(phiInsts, thenID, elseID)
         for k, v in phiInsts.items():
@@ -453,6 +469,9 @@ class SSA:
     def GetCurrBasicBlock(self):
         return self.CurrentBasicBlock
 
+    def SetCurrBasicBlock(self, bbID):
+        self.CurrentBasicBlock = bbID
+
     def GetFirstInstInBlock(self, bbID):
         if len(self.BBList[bbID].instructions) > 0:
             return self.BBList[bbID].instructions[0]
@@ -612,7 +631,7 @@ class SSA:
                         if parentLastInst.operand2 == blockFirstInst.instID:
                             edgeInfo += "[label=\"branch\"]"
                         else:
-                            if int(parentLastInst.operand2[2:]) == block.bbID:
+                            if type(parentLastInst.operand2) == str and int(parentLastInst.operand2[2:]) == block.bbID:
                                 edgeInfo += "[label=\"branch\"]"
                             else:
                                 edgeInfo += "[label=\"fall-through\"]"
