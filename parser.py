@@ -34,7 +34,7 @@ class Parser:
 
     def PrintSSA(self):
         self.ssa.PrintInstructions()
-        self.ssa.PrintBlocks(self.t)
+        self.ssa.PrintBlocks()
 
     def GenerateDot(self, varMode=False, debugMode=False):
         return self.ssa.GenerateDot(self.t, varMode, debugMode)
@@ -171,24 +171,24 @@ class Parser:
                 self.next()
                 self.CheckFor(Tokens.closeparenToken)
             instID = self.ssa.DefineIR(IRTokens.readToken, self.ssa.GetCurrBasicBlock())
-            return instID
+            #return instID
         elif self.sym == Tokens.outputNewLineToken:
             self.next()
             if self.sym == Tokens.openparenToken:
                 self.next()
                 self.CheckFor(Tokens.closeparenToken)
             instID = self.ssa.DefineIR(IRTokens.writeNLToken, self.ssa.GetCurrBasicBlock())
-            return instID
+            #return instID
         elif self.sym == Tokens.outputNumToken:
             self.next()
             self.CheckFor(Tokens.openparenToken)
-            opID = self.expression()
+            opID, _, _ = self.expression()
             instID = self.ssa.DefineIR(IRTokens.writeToken, self.ssa.GetCurrBasicBlock(), opID)
             self.CheckFor(Tokens.closeparenToken)
         else:
             instID = 0
             pass
-        return instID
+        return instID, [], (2, instID)
 
     def ifStatement(self):
         # ifStatement = “if” relation “then” statSequence [ “else” statSequence ] “fi”.
@@ -316,6 +316,7 @@ class Parser:
         # create join block
         joinBB = self.ssa.CreateNewBasicBlock(entryBBDom, [entryBB])
         joinBBDom = self.ssa.GetDomList(joinBB)
+        self.ssa.AddBlockChild(entryBB, joinBB)
 
         # call relation
         relOp, cmpInstID = self.relation()
@@ -340,8 +341,8 @@ class Parser:
         doBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB])
 
         # connect join block with do block for loop body
-        self.ssa.AddBlockParent(joinBB, doBB)
-        self.ssa.AddBlockChild(doBB, joinBB)
+        #self.ssa.AddBlockParent(joinBB, doBB)
+        #self.ssa.AddBlockChild(doBB, joinBB)
         self.ssa.AddBlockChild(joinBB, doBB)
 
         self.statSequence()
@@ -349,7 +350,10 @@ class Parser:
         # get the latest block from statSequence, need to add an unconditional branch
         latestDoBB = self.ssa.GetCurrBasicBlock()
         self.CheckFor(Tokens.odToken)
-
+        self.ssa.AddBlockChild(latestDoBB, joinBB)
+        self.ssa.AddBlockParent(joinBB, latestDoBB)
+        self.PrintSSA()
+        print(entryBB, joinBB, doBB, latestDoBB)
         # reconcile phi function
         self.ssa.whilePhi(joinBB, latestDoBB, self.identTable)
 
@@ -490,7 +494,7 @@ class Parser:
         # funcCall
         elif self.sym == Tokens.callToken:
             self.next()
-            instID, operands = self.funcCall()
+            instID, instList, operands = self.funcCall()
             operands = (2, instID)
 
         if self.debug:
@@ -500,7 +504,7 @@ class Parser:
 
 
 if __name__ == '__main__':
-    comp = Parser("./tests/whileTests/while.txt", True)
+    comp = Parser("./tests/whileTests/nestedwhile/basicNestedWhile.txt", True)
     #comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()

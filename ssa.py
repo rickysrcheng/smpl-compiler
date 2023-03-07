@@ -306,21 +306,26 @@ class SSA:
         #     if a later variable needs the unmodified instruction,
         #       that is up to the later variable to make in their basic block
         exploreStack = []
+        explored = []
         currID = joinID
+        explored.append(joinID)
         for child in self.BBList[currID].children:
             exploreStack.append(child)
         self.whilePhiBBHelper1(currID, joinID)
         # then we go down the DO nodes
         currID = -1
-        self.PrintInstructions()
-        while currID != joinID:
-            currID = exploreStack.pop(0)
-            for child in self.BBList[currID].children:
-                exploreStack.append(child)
 
-            self.whilePhiBBHelper1(currID, joinID)
-            self.whilePhiBBHelper2(currID, joinID)
-            self.whilePhiBBHelper2(currID, joinID)
+        while currID != joinID and len(exploreStack) != 0:
+            currID = exploreStack.pop(0)
+            print(currID, exploreStack)
+            if currID not in explored:
+                explored.append(currID)
+                for child in self.BBList[currID].children:
+                    exploreStack.append(child)
+
+                self.whilePhiBBHelper1(currID, joinID)
+                self.whilePhiBBHelper2(currID, joinID)
+                self.whilePhiBBHelper2(currID, joinID)
 
         # there should only be phi nodes assignments in join block
         # ^not true, case with uninitialized variables
@@ -379,7 +384,7 @@ class SSA:
                     ssaInstID = ssaVersion[1]
                     instChanges = {}
                     newHist = []
-                    print(self.t.GetTokenStr(k))
+                    #print(self.t.GetTokenStr(k), v)
 
                     for hist in ssaVersion[2]:
                         # gather both current and previous instruction operand for comparison
@@ -399,7 +404,7 @@ class SSA:
                         instNode = self.instructionList[instID]
                         op1 = instNode.operand1
                         op2 = instNode.operand2
-                        print(instID, histOp1, histOp2, op1, op2)
+                        #print(instID, histOp1, histOp2, op1, op2)
                         # operands have been changed, so we need to create a new instruction
                         if op1 != histOp1 or op2 != histOp2:
                             newNodeVar1 = nodeVar1
@@ -420,13 +425,15 @@ class SSA:
                             nodeVar2 = newNodeVar2
 
                         newHist.append((instID, nodeVar1, nodeVar2))
-                    ssaInstID = newHist[-1][0]
+                    #print(newHist)
+                    if len(newHist) != 0:
+                        ssaInstID = newHist[-1][0]
                     self.BBList[bbID].valueTable[k][i] = (ver, ssaInstID, newHist)
                     self.whilePhiBBHelper1(bbID, joinID)
                     newSSA.insert(0, (ver, ssaInstID, newHist))
-                print(self.t.GetTokenStr(k), "NEW SSA")
-                print(v)
-                print(newSSA)
+                #print(self.t.GetTokenStr(k), "NEW SSA")
+                #print(v)
+                #print(newSSA)
                 #self.BBList[bbID].valueTable[k] = newSSA
 
     def whilePhiGetNodeInstID(self, nodeVar, phiInst, bbID, joinID):
@@ -487,7 +494,7 @@ class SSA:
             print(f'({instID}, {inst.BB}): {self.opDct[op]} {op1} {op2}, variable pair: {inst.firstVarPair}, '
                   f'dependency: {inst.dependency}')
 
-    def PrintBlocks(self, tokenizer):
+    def PrintBlocks(self):
         for block in self.BBList:
             print(block.bbID)
             print(f'    Dominators: {block.dominators}')
@@ -499,9 +506,9 @@ class SSA:
             first = True
             for k, v in block.valueTable.items():
                 if first:
-                    values += f'({tokenizer.GetTokenStr(k)}, {k}): {v}, \n'
+                    values += f'({self.t.GetTokenStr(k)}, {k}): {v}, \n'
                 else:
-                    values += " "*13 + f'({tokenizer.GetTokenStr(k)}, {k}): {v}, \n'
+                    values += " "*13 + f'({self.t.GetTokenStr(k)}, {k}): {v}, \n'
                 first = False
             values = '{' + values[:-2] + '}'
             print(f'    Values: {values}')
@@ -605,7 +612,10 @@ class SSA:
                         if parentLastInst.operand2 == blockFirstInst.instID:
                             edgeInfo += "[label=\"branch\"]"
                         else:
-                            edgeInfo += "[label=\"fall-through\"]"
+                            if int(parentLastInst.operand2[2:]) == block.bbID:
+                                edgeInfo += "[label=\"branch\"]"
+                            else:
+                                edgeInfo += "[label=\"fall-through\"]"
                     else:
                         if parentBlock.bbID > 1:
                             edgeInfo += "[label=\"fall-through\"]"
