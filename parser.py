@@ -19,6 +19,10 @@ class Parser:
                       Tokens.gtrToken, Tokens.lssToken]
 
         self.ssa = ssa.SSA(self.t)
+        # (opType, joinID, entryID)
+        #  opType: 0, join if-then block, (ssa, entry/else)
+        #          1, join else block, right-hand side (entry/if, ssa)
+        #          2, join while block, left-hand side (ssa, entry)
         self.joinStack = []
 
     def next(self):
@@ -272,7 +276,7 @@ class Parser:
 
             self.ssa.ChangeOperands(braInstID, cmpInstID, elseFirstInst)
 
-            joinParent = latestThenID
+            joinParent = latestElseID
 
         # if there's no else block, then the if block falls through with no branch instruction
         # if there are no instructions inside, add it
@@ -288,7 +292,7 @@ class Parser:
         self.ssa.AddBlockParent(joinID, joinParent)
         self.ssa.AddBlockChild(joinParent, joinID)
 
-        self.ssa.ifElsePhi(latestThenID, joinID, currBB, self.identTable, latestElseID)
+        #self.ssa.ifElsePhi(latestThenID, joinID, currBB, self.identTable, latestElseID)
 
         joinFirstInstID = self.ssa.GetFirstInstInBlock(joinID)
         if joinFirstInstID == -1:
@@ -356,8 +360,9 @@ class Parser:
         #self.ssa.AddBlockParent(joinBB, doBB)
         #self.ssa.AddBlockChild(doBB, joinBB)
         self.ssa.AddBlockChild(joinBB, doBB)
-
+        self.joinStack.append((2, joinBB, entryBB))
         self.statSequence()
+        self.joinStack.pop()
 
         # get the latest block from statSequence, need to add an unconditional branch
         latestDoBB = self.ssa.GetCurrBasicBlock()
@@ -373,7 +378,8 @@ class Parser:
         self.ssa.DefineIR(IRTokens.braToken, latestDoBB, joinFirstID)
 
         exitBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB])
-        self.ssa.ChangeOperands(braInstID, cmpInstID, f'BB{exitBB}')
+        exitInstID = self.ssa.instructionCount
+        self.ssa.ChangeOperands(braInstID, cmpInstID, exitInstID)
 
     def returnStatement(self):
         pass
@@ -516,7 +522,7 @@ class Parser:
 
 
 if __name__ == '__main__':
-    comp = Parser("./tests/ifTests/iftest.txt", True)
+    comp = Parser("./tests/whileTests/nestedwhile/basicNestedWhile.txt", True)
     #comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()

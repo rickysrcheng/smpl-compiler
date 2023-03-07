@@ -116,7 +116,20 @@ class SSA:
                 if inst_position != -1:
                     self.BBList[bb_id].instructions.insert(inst_position, instID)
                 else:
-                    self.BBList[bb_id].instructions.append(instID)
+                    # insert phi instructions at the beginning, but in order of insertion
+                    if operation == IRTokens.phiToken:
+                        if len(self.BBList[bb_id].instructions) == 0:
+                            self.BBList[bb_id].instructions.append(instID)
+                        else:
+                            for i in range(len(self.BBList[bb_id].instructions)):
+                                inst = self.instructionList[self.BBList[bb_id].instructions[i]]
+                                if inst.instruction != IRTokens.phiToken:
+                                    self.BBList[bb_id].instructions.insert(i, instID)
+                                    break
+                            else:
+                                self.BBList[bb_id].instructions.append(instID)
+                    else:
+                        self.BBList[bb_id].instructions.append(instID)
                 self.BBList[bb_id].opTables[operation].insert(0, (instID, operand1, operand2))
         return instID
 
@@ -246,19 +259,59 @@ class SSA:
 
     def AddPhiNode(self, identToken, firstSSA, joinBlocks):
         ssaVal = firstSSA
-        for opType, joinID, entryID in joinBlocks:
-            print(opType, joinID, entryID)
-            phiInstNode = self.GetVarVersion(identToken, joinID)
-            if phiInstNode == (-1, -1, -1):
-                if opType == 0:
-                    op1 = ssaVal
-                    op2 = self.GetVarInstNode(identToken, entryID)
-                else:
-                    op1 = self.GetVarInstNode(identToken, entryID)
-                    op2 = ssaVal
-                print(f"INSERT PHI {op1} {op2}")
-            print(phiInstNode)
+        print(f'IN ADD PHI {self.t.GetTokenStr(identToken)}, {identToken}, joins: {joinBlocks}')
+        for opType, joinID, entryID in reversed(joinBlocks):
 
+            phiInstVar = self.GetVarVersion(identToken, joinID)
+            entryInstVar = self.GetVarVersion(identToken, entryID)
+
+            # if phi function does not exist in the join block yet
+            #    create phi function
+            if phiInstVar[1] == entryInstVar[1] and phiInstVar[1] != -1:
+                if opType == 0 or opType == 2:
+                    op1 = ssaVal
+                    op2 = entryInstVar[1]
+                else:
+                    op1 = entryInstVar[1]
+                    op2 = ssaVal
+                ssaVal = self.DefineIR(IRTokens.phiToken, joinID, op1, op2)
+                self.AssignVariable(identToken, ssaVal, joinID)
+                print(f"INSERT PHI {op1} {op2}")
+            # otherwise, some function exists
+            #     this means that the identToken is a later assignment than the previous
+            #     assignment and should be updated to this
+            elif phiInstVar[1] != entryInstVar[1] and phiInstVar[1] != -1:
+                phiInstNode = self.instructionList[phiInstVar[1]]
+                if phiInstNode.instruction == IRTokens.phiToken:
+                    if opType == 0 or opType == 2:
+                        op1 = ssaVal
+                        op2 = phiInstNode.operand2
+                    else:
+                        op1 = phiInstNode.operand1
+                        op2 = ssaVal
+                    phiInstNode.setOperands(op1, op2)
+
+                    ssaVal = phiInstNode.instID
+                else:
+                    if opType == 0 or opType == 2:
+                        op1 = ssaVal
+                        op2 = phiInstNode.operand1
+                    else:
+                        op1 = phiInstNode.operand1
+                        op2 = ssaVal
+                    ssaVal = self.DefineIR(IRTokens.phiToken, joinID, op1, op2)
+                    self.AssignVariable(identToken, ssaVal, joinID)
+
+            else:
+                raise Exception("Variable not initialized yet. Impossible case.")
+            print(phiInstVar)
+
+        # iterate through join stack in reverse
+        # update the entry ssa
+        # rule: if the outer join is while, then entrySSA should be whileSSA value
+        #       if the outer join is if/else, then entrySSA should stay as is
+        for i, e in reversed(list(enumerate(joinBlocks))):
+            print(i, e)
 
     def ifElsePhi(self, thenID, joinID, entryID, varEntries, elseID=-1):
         phiInsts = {}
@@ -304,18 +357,18 @@ class SSA:
         print(varEntries)
         # first reconcile ifs with dominating blocks
         # then we loop through else blocks, if it exists
-        for var in varEntries:
-            entrySSA = self.GetVarVersion(var, joinID)
-            doSSA = self.GetVarVersion(var, latestDoID)
-            # if do path modifies a variable
-            if entrySSA != doSSA:
-                phiInsts[var] = (doSSA[1], entrySSA[1])
-
-        idx = 0
-        for k, v in phiInsts.items():
-            instID = self.DefineIR(IRTokens.phiToken, joinID, v[0], v[1], idx)
-            idx += 1
-            self.AssignVariable(k, instID, joinID)
+        # for var in varEntries:
+        #     entrySSA = self.GetVarVersion(var, joinID)
+        #     doSSA = self.GetVarVersion(var, latestDoID)
+        #     # if do path modifies a variable
+        #     if entrySSA != doSSA:
+        #         phiInsts[var] = (doSSA[1], entrySSA[1])
+        #
+        # idx = 0
+        # for k, v in phiInsts.items():
+        #     instID = self.DefineIR(IRTokens.phiToken, joinID, v[0], v[1], idx)
+        #     idx += 1
+        #     self.AssignVariable(k, instID, joinID)
 
         # then need to update CMP and other operands in the doblock
         # main items:
@@ -346,13 +399,13 @@ class SSA:
         # there should only be phi nodes assignments in join block
         # ^not true, case with uninitialized variables
         # but latest version should only be phi nodes
-        for k, v in self.BBList[joinID].valueTable.items():
-            instID = v[0][1]
-            doSSA = self.GetVarVersion(k, latestDoID)
-
-            instNode = self.instructionList[instID]
-            if instNode.instruction == IRTokens.phiToken:
-                instNode.setOperands(doSSA[1], instNode.operand2)
+        # for k, v in self.BBList[joinID].valueTable.items():
+        #     instID = v[0][1]
+        #     doSSA = self.GetVarVersion(k, latestDoID)
+        #
+        #     instNode = self.instructionList[instID]
+        #     if instNode.instruction == IRTokens.phiToken:
+        #         instNode.setOperands(doSSA[1], instNode.operand2)
 
         print('EXITING PHI')
 
@@ -445,12 +498,11 @@ class SSA:
                     if len(newHist) != 0:
                         ssaInstID = newHist[-1][0]
                     self.BBList[bbID].valueTable[k][i] = (ver, ssaInstID, newHist)
+                    # find phi node for in the join block and change the operand
+                    phiInstID = self.GetVarInstNode(k, joinID)
+                    self.instructionList[phiInstID].setOperands(operand1=ssaInstID)
                     self.whilePhiBBHelper1(bbID, joinID)
                     newSSA.insert(0, (ver, ssaInstID, newHist))
-                #print(self.t.GetTokenStr(k), "NEW SSA")
-                #print(v)
-                #print(newSSA)
-                #self.BBList[bbID].valueTable[k] = newSSA
 
     def whilePhiGetNodeInstID(self, nodeVar, phiInst, bbID, joinID):
         op = None
@@ -640,11 +692,11 @@ class SSA:
                             edgeInfo += "[label=\"fall-through\"]"
                 edgeInfo += ";"
                 dagSect.append(edgeInfo)
-            for domID in block.dominators:
-                if domID != block.bbID and domID > 0:
-                    domInfo = f"\tbb{domID}:b -> bb{block.bbID}:b [color=\"{color[domID%len(color)]}\", " \
-                              f"style=dashed, label=\"dom\"];"
-                    domSect.append(domInfo)
+            # for domID in block.dominators:
+            #     if domID != block.bbID and domID > 0:
+            #         domInfo = f"\tbb{domID}:b -> bb{block.bbID}:b [color=\"{color[domID%len(color)]}\", " \
+            #                   f"style=dashed, label=\"dom\"];"
+            #         domSect.append(domInfo)
 
         separator = "\n"
         dot = f'digraph G {{\n{separator.join(blockSect)}\n\n{separator.join(dagSect)}\n{separator.join(domSect)} \n}}'
