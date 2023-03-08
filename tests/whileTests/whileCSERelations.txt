@@ -1,5 +1,6 @@
 main
 var a, i, j;
+array b[10];
 {
     let a <- call InputNum();
     let i <- 0;

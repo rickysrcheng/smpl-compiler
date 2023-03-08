@@ -1,12 +1,12 @@
 digraph G {
-	bb0[shape=record, label="<b>BB0|{3: const #10|6: const #1}"];
-	bb1[shape=record, label="<b>BB1|{0: read|1: read|2: read}|{i: (0, 0)|j: (0, 1)|k: (0, 2)|x: (0, 0)|y: (0, 1)|z: (0, 2)}"];
-	bb2[shape=record, label="<b>join\nBB2|{7: phi (12) (1)|17: phi (15) (0)|21: phi (19) (1)|23: phi (19) (2)|27: phi (26) (0)|4: cmp (27) (3)|5: bge (4) (29)}|{j: (1, 7)|x: (1, 17)|y: (1, 21)|z: (1, 23)|i: (1, 27)}"];
-	bb3[shape=record, label="<b>do\nBB3|{8: \<empty\>}|{j: (1, 24)}"];
-	bb4[shape=record, label="<b>join\nBB4|{16: phi (15) (17)|20: phi (19) (21)|22: phi (19) (23)|24: phi (12) (6)|9: cmp (24) (3)|10: bge (9) (26)}|{x: (1, 16)|y: (1, 20)|z: (1, 22)|j: (2, 24)}"];
-	bb5[shape=record, label="<b>do\nBB5|{11: add (27) (6)|12: add (24) (6)|13: add (11) (12)|14: add (2) (6)|15: add (13) (14)|18: add (11) (14)|19: add (18) (12)|25: bra (16)}|{x: (1, 15)|y: (1, 19)|z: (1, 19)|j: (2, 12)}"];
-	bb6[shape=record, label="<b>exit\nBB6|{26: add (27) (6)|28: bra (7)}|{i: (1, 26)}"];
-	bb7[shape=record, label="<b>exit\nBB7|{29: write (27)|30: end}"];
+	bb0[shape=record, label="<b>BB0|{3: const #10, (None, None)|6: const #1, (None, None)}"];
+	bb1[shape=record, label="<b>BB1|{0: read, (None, None)|1: read, (None, None)|2: read, (None, None)}|{i: (0, 0, [])|j: (0, 1, [])|k: (0, 2, [])|x: (0, 0, [])|y: (0, 1, [])|z: (0, 2, [])}"];
+	bb2[shape=record, label="<b>join\nBB2|{7: phi (24) (1), (None, None)|17: phi (16) (0), (None, None)|21: phi (20) (1), (None, None)|23: phi (22) (2), (None, None)|27: phi (26) (0), (None, None)|4: cmp (27) (3), ((0, i), (3))|5: bge (4) (29), (None, None)}|{j: (1, 7, [])|x: (1, 17, [])|y: (1, 21, [])|z: (1, 23, [])|i: (1, 27, [])}"];
+	bb3[shape=record, label="<b>do\nBB3|{8: \<empty\>, (None, None)}|{j: (1, 6, [])}"];
+	bb4[shape=record, label="<b>join\nBB4|{16: phi (15) (17), (None, None)|20: phi (19) (21), (None, None)|22: phi (19) (23), (None, None)|24: phi (12) (6), (None, None)|9: cmp (24) (3), ((1, j), (3))|10: bge (9) (26), (None, None)}|{x: (1, 16, [])|y: (1, 20, [])|z: (1, 22, [])|j: (2, 24, [])}"];
+	bb5[shape=record, label="<b>do\nBB5|{11: add (27) (6), ((0, i), (6))|12: add (24) (6), ((1, j), (6))|13: add (11) (12), ((11), (12))|14: add (2) (6), ((0, k), (6))|15: add (13) (14), ((13), (14))|18: add (11) (14), ((11), (14))|19: add (18) (12), ((18), (12))|25: bra (16), (None, None)}|{x: (1, 15, [(11, (0, i), 6)(12, (1, j), 6)(13, 11, 12)(14, (0, k), 6)(15, 13, 14)])|y: (1, 19, [(11, (0, i), 6)(14, (0, k), 6)(18, 11, 14)(12, (1, j), 6)(19, 18, 12)])|z: (1, 19, [(14, (0, k), 6)(11, (0, i), 6)(18, 11, 14)(12, (1, j), 6)(19, 18, 12)])|j: (2, 12, [(12, (1, j), 6)])}"];
+	bb6[shape=record, label="<b>exit\nBB6|{26: add (27) (6), ((0, i), (6))|28: bra (7), (None, None)}|{i: (1, 26, [(26, (0, i), 6)])}"];
+	bb7[shape=record, label="<b>exit\nBB7|{29: write (27), (None, None)|30: end, (None, None)}"];
 
 	bb0:s -> bb1:n;
 	bb1:s -> bb2:n;

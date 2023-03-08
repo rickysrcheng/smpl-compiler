@@ -58,9 +58,9 @@ class SSA:
 
         self.operandAgnostic = [
             IRTokens.addToken,
-            IRTokens.subToken,
-            IRTokens.mulToken,
-            IRTokens.divToken
+            # IRTokens.subToken, a - b != b - a
+            IRTokens.mulToken
+            # IRTokens.divToken a/b != b/a
         ]
 
         self.instructionCount = 0  # always incrementing
@@ -147,7 +147,7 @@ class SSA:
                 self.BBList[bb_id].opTables[operation].insert(0, (instID, operand1, operand2))
         return instID, False
 
-    def ChangeOperands(self, instID, op1, op2=None):
+    def ChangeOperands(self, instID, op1=None, op2=None):
         self.instructionList[instID].setOperands(op1, op2)
 
     def AddInstDependency(self, instID, var):
@@ -430,7 +430,7 @@ class SSA:
                 for i, ssaVersion in reversed(list(enumerate(v))):
                     phiInstID = self.GetVarInstNode(k, joinID)
                     ver = ssaVersion[0]
-                    ssaInstID =  self.instructionList[phiInstID].operand1
+                    ssaInstID = ssaVersion[1] # self.instructionList[phiInstID].operand1
                     instChanges = {}
                     newHist = []
                     # print(self.t.GetTokenStr(k), v)
@@ -491,10 +491,7 @@ class SSA:
                     if len(newHist) != 0:
                         ssaInstID = newHist[-1][0]
                     self.BBList[bbID].valueTable[k][i] = (ver, ssaInstID, newHist)
-                    # find phi node for in the join block and change the operand
-                    self.instructionList[phiInstID].setOperands(operand1=ssaInstID)
                     self.whilePhiBBHelper1(bbID, joinID)
-                    # newSSA.insert(0, (ver, ssaInstID, newHist))
 
     def whilePhiGetNodeInstID(self, nodeVar, currInstID, bbID, joinID):
         op = None
@@ -702,7 +699,7 @@ class SSA:
                 if type(parentLastInst) != int and type(blockFirstInst) != int:
                     if parentLastInst.instruction == 40:
                         if parentLastInst.operand1 == blockFirstInst.instID:
-                            edgeInfo += "[label=\"branch\", constraint=false]"
+                            edgeInfo += "[label=\"branch\"]"#, constraint=false]"
                     elif 40 < parentLastInst.instruction < 47:
                         if parentLastInst.operand2 == blockFirstInst.instID:
                             edgeInfo += "[label=\"branch\"]"

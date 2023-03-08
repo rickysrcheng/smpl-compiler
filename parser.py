@@ -11,7 +11,9 @@ class Parser:
         self.debug = debug
 
         self.endVarDecl = True
+        self.collectArr = False
         self.identTable = []
+        self.arrayTable = []
         self.level = 0
         self.spacing = 2
 
@@ -25,6 +27,9 @@ class Parser:
         #          1, join else block, right-hand side (entry/if, ssa)
         #          2, join while block, left-hand side (ssa, entry)
         self.joinStack = []
+
+        # stores the branch instruction ID and basic block it branches to
+        self.branchInsts = []  # (opPos, instID, branchBB)
 
     def next(self):
         self.sym = self.t.GetNext()
@@ -65,32 +70,41 @@ class Parser:
         # Variable instantiation
         # varDecl = typeDecl indent { “,” ident } “;”
         self.endVarDecl = True
+        self.collectArr = False
+        arrSize = []
         while self.sym != Tokens.funcToken and self.sym != Tokens.beginToken:
             # typeDecl = “var” | “array” “[“ number “]” { “[“ number “]”}
-            #print(self.t.GetTokenStr(self.sym))
             if self.sym == Tokens.varToken:
                 self.next()
                 self.endVarDecl = False
+            elif self.sym == Tokens.arrToken:
+                self.collectArr = True
+                self.endVarDecl = False
+                self.next()
+                arrSize = [self.parseArraySize()]
+                while self.sym == Tokens.openbracketToken:
+                    arrSize.append(self.parseArraySize())
 
             if not self.endVarDecl:
                 if self.sym > 255:
-                    self.identTable.append(self.sym)
+                    if self.collectArr:
+                        self.arrayTable.append((self.sym, tuple(arrSize)))
+                    else:
+                        self.identTable.append(self.sym)
                     self.next()
                 else:
                     self.t.close()
                     raise SyntaxError("Keyword cannot be used as variable name")
-            elif self.sym == Tokens.arrToken:
-                pass
 
             if self.sym == Tokens.semiToken:
                 self.next()
                 self.endVarDecl = True
+                self.collectArr = False
             elif self.sym == Tokens.commaToken:
                 self.next()
             else:
                 self.t.close()
                 raise SyntaxError(f"Expected \',\' or \';\', got {self.sym}")
-
         # Function instantiation
         if self.sym == Tokens.funcToken:
             pass
@@ -102,8 +116,24 @@ class Parser:
 
         self.CheckFor(Tokens.periodToken)
         self.ssa.DefineIR(IRTokens.endToken, self.ssa.GetCurrBasicBlock())
+
+        # change branch instructions
+        for braInsts in self.branchInsts:
+            brOp1 = self.ssa.GetFirstInstInBlock(braInsts[2])
+            if braInsts[0] == 0:
+                self.ssa.ChangeOperands(braInsts[1], op1=brOp1)
+            else:
+                self.ssa.ChangeOperands(braInsts[1], op2=brOp1)
+
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit C{self.level}')
+
+    def parseArraySize(self):
+        self.CheckFor(Tokens.openbracketToken)
+        self.CheckFor(Tokens.number)
+        size = self.t.lastNum
+        self.CheckFor(Tokens.closebracketToken)
+        return size
 
     def statSequence(self):
         # statSequence = statement { “;” statement } [ “;” ]
@@ -277,6 +307,10 @@ class Parser:
 
             self.ssa.ChangeOperands(braInstID, cmpInstID, elseFirstInst)
 
+            latestElseFirstInst = self.ssa.GetFirstInstInBlock(latestElseID)
+            if latestElseFirstInst == -1:
+                elseFirstInst, _ = self.ssa.DefineIR(IRTokens.emptyToken, latestElseID)
+
             joinParent = latestElseID
 
         # if there's no else block, then the if block falls through with no branch instruction
@@ -301,10 +335,12 @@ class Parser:
 
         if elseExist:
             self.ssa.AddBlockChild(latestElseID, joinID)
-            self.ssa.ChangeOperands(jmpID, joinFirstInstID)
+            # self.ssa.ChangeOperands(jmpID, joinFirstInstID)
+            self.branchInsts.append((0, jmpID, joinID))
         else:
             self.ssa.AddBlockChild(currBB, joinID)
-            self.ssa.ChangeOperands(braInstID, cmpInstID, joinFirstInstID)
+            # self.ssa.ChangeOperands(braInstID, cmpInstID, joinFirstInstID)
+            self.branchInsts.append((1, braInstID, joinID))
         self.ssa.SetCurrBasicBlock(joinID)
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit ifStatement{self.level}')
@@ -382,8 +418,9 @@ class Parser:
         self.PrintSSA()
         self.ssa.whilePhi(joinBB, latestDoBB, self.identTable)
 
-        exitInstID = self.ssa.instructionCount
-        self.ssa.ChangeOperands(braInstID, cmpInstID, exitInstID)
+        # exitInstID = self.ssa.instructionCount
+        # self.ssa.ChangeOperands(braInstID, cmpInstID, exitInstID)
+        self.branchInsts.append((1, braInstID, exitBB))
 
     def returnStatement(self):
         pass
@@ -540,12 +577,12 @@ class Parser:
 
 
 if __name__ == '__main__':
-    filePath = './tests/singleBlock/CSEOperandAgnostic'
+    filePath = './tests/whileTests/whileCSERelations'
     comp = Parser(filePath + ".txt", True)
-    #comp = Parser("./test.txt", True)
+    comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()
-    dot = comp.GenerateDot(varMode=True, debugMode=False)
-    with open(filePath + '.dot', 'w') as f:
-        f.write(dot)
+    dot = comp.GenerateDot(varMode=True, debugMode=True)
+    # with open(filePath + '.dot', 'w') as f:
+    #     f.write(dot)
     comp.close()
