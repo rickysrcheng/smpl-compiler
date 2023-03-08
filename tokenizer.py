@@ -127,6 +127,13 @@ class Tokenizer:
         # get rid of whitespaces
         while self.sym.isspace():  # self.sym in [" ","\n", "\t"]:
             self.__next()
+        if self.sym == "#":
+            while self.sym != "\n":
+                print(self.sym)
+                self.__next()
+            self.__next()
+        while self.sym.isspace():  # self.sym in [" ","\n", "\t"]:
+            self.__next()
 
         token = 0
         if self.sym == '':

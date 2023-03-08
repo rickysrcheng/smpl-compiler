@@ -10,6 +10,7 @@ class Parser:
         self.sym = None
         self.debug = debug
 
+        self.endVarDecl = True
         self.identTable = []
         self.level = 0
         self.spacing = 2
@@ -63,16 +64,15 @@ class Parser:
 
         # Variable instantiation
         # varDecl = typeDecl indent { “,” ident } “;”
-
-        endVarDecl = True
+        self.endVarDecl = True
         while self.sym != Tokens.funcToken and self.sym != Tokens.beginToken:
             # typeDecl = “var” | “array” “[“ number “]” { “[“ number “]”}
             #print(self.t.GetTokenStr(self.sym))
             if self.sym == Tokens.varToken:
                 self.next()
-                endVarDecl = False
+                self.endVarDecl = False
 
-            if not endVarDecl:
+            if not self.endVarDecl:
                 if self.sym > 255:
                     self.identTable.append(self.sym)
                     self.next()
@@ -84,7 +84,7 @@ class Parser:
 
             if self.sym == Tokens.semiToken:
                 self.next()
-                endVarDecl = True
+                self.endVarDecl = True
             elif self.sym == Tokens.commaToken:
                 self.next()
             else:
@@ -156,7 +156,7 @@ class Parser:
         currBB = self.ssa.GetCurrBasicBlock()
         instNode, instList, operands = self.expression()
         (version, inst, op) = self.ssa.AssignVariable(ident, instNode, currBB, instList)
-        self.ssa.AddPhiNode(ident, inst, self.joinStack)
+        self.ssa.AddPhiNode(ident, inst, self.joinStack, currBB)
 
         if self.debug:
             print(f'Assigning {self.t.GetTokenStr(ident)} to {instNode}, {operands}')
@@ -177,20 +177,20 @@ class Parser:
             if self.sym == Tokens.openparenToken:
                 self.next()
                 self.CheckFor(Tokens.closeparenToken)
-            instID = self.ssa.DefineIR(IRTokens.readToken, self.ssa.GetCurrBasicBlock())
+            instID, _ = self.ssa.DefineIR(IRTokens.readToken, self.ssa.GetCurrBasicBlock())
             #return instID
         elif self.sym == Tokens.outputNewLineToken:
             self.next()
             if self.sym == Tokens.openparenToken:
                 self.next()
                 self.CheckFor(Tokens.closeparenToken)
-            instID = self.ssa.DefineIR(IRTokens.writeNLToken, self.ssa.GetCurrBasicBlock())
+            instID, _  = self.ssa.DefineIR(IRTokens.writeNLToken, self.ssa.GetCurrBasicBlock())
             #return instID
         elif self.sym == Tokens.outputNumToken:
             self.next()
             self.CheckFor(Tokens.openparenToken)
             opID, _, _ = self.expression()
-            instID = self.ssa.DefineIR(IRTokens.writeToken, self.ssa.GetCurrBasicBlock(), opID)
+            instID, _ = self.ssa.DefineIR(IRTokens.writeToken, self.ssa.GetCurrBasicBlock(), opID)
             self.CheckFor(Tokens.closeparenToken)
         else:
             instID = 0
@@ -224,15 +224,16 @@ class Parser:
             braInstID = self.ssa.DefineIR(IRTokens.bgtToken, currBB, cmpInstID, 0)
         elif relOp == Tokens.gtrToken:  # >
             braInstID = self.ssa.DefineIR(IRTokens.bleToken, currBB, cmpInstID, 0)
-        elif relOp == Tokens.geqToken:  # >=
+        else:  # elif relOp == Tokens.geqToken:  # >=
             braInstID = self.ssa.DefineIR(IRTokens.bltToken, currBB, cmpInstID, 0)
 
+        braInstID = braInstID[0]
         # create new block and go to statSequence
-        thenID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB])
+        thenID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB], blockType="then\\n")
        # print(self.ssa.GetCurrBasicBlock(), self.ssa.GetDomList(thenID))
         self.ssa.AddBlockChild(currBB, thenID)
 
-        joinID = self.ssa.CreateNewBasicBlock(currBBDom, [])
+        joinID = self.ssa.CreateNewBasicBlock(currBBDom, [], blockType='join\\n')
 
         self.ssa.SetCurrBasicBlock(thenID)
         self.joinStack.append((0, joinID, currBB))
@@ -258,9 +259,9 @@ class Parser:
             elseExist = True
 
             # this branches straight to join block
-            jmpID = self.ssa.DefineIR(IRTokens.braToken, latestThenID, 0)
+            jmpID, _ = self.ssa.DefineIR(IRTokens.braToken, latestThenID, 0)
 
-            elseID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB])
+            elseID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB], blockType="else\\n")
             self.ssa.AddBlockChild(currBB, elseID)
             self.joinStack.append((1, joinID, currBB))
             self.statSequence()
@@ -272,7 +273,7 @@ class Parser:
             # if else block has no instruction, set a nop instruction
             elseFirstInst = self.ssa.GetFirstInstInBlock(elseID)
             if elseFirstInst == -1:
-                elseFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, elseID)
+                elseFirstInst, _ = self.ssa.DefineIR(IRTokens.emptyToken, elseID)
 
             self.ssa.ChangeOperands(braInstID, cmpInstID, elseFirstInst)
 
@@ -282,7 +283,7 @@ class Parser:
         # if there are no instructions inside, add it
         if not elseExist:
             if thenFirstInst == -1:
-                thenFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, thenID)
+                thenFirstInst, _ = self.ssa.DefineIR(IRTokens.emptyToken, thenID)
 
         self.CheckFor(Tokens.fiToken)
 
@@ -296,7 +297,7 @@ class Parser:
 
         joinFirstInstID = self.ssa.GetFirstInstInBlock(joinID)
         if joinFirstInstID == -1:
-            joinFirstInstID = self.ssa.DefineIR(IRTokens.emptyToken, joinID)
+            joinFirstInstID, _ = self.ssa.DefineIR(IRTokens.emptyToken, joinID)
 
         if elseExist:
             self.ssa.AddBlockChild(latestElseID, joinID)
@@ -327,10 +328,10 @@ class Parser:
         #print(entryBB, entryBBDom)
 
         if self.ssa.GetFirstInstInBlock(entryBB) == -1:
-            entryFirstInst = self.ssa.DefineIR(IRTokens.emptyToken, entryBB)
+            entryFirstInst, _ = self.ssa.DefineIR(IRTokens.emptyToken, entryBB)
 
         # create join block
-        joinBB = self.ssa.CreateNewBasicBlock(entryBBDom, [entryBB])
+        joinBB = self.ssa.CreateNewBasicBlock(entryBBDom, [entryBB], blockType="join\\n")
         joinBBDom = self.ssa.GetDomList(joinBB)
         self.ssa.AddBlockChild(entryBB, joinBB)
 
@@ -348,13 +349,14 @@ class Parser:
             braInstID = self.ssa.DefineIR(IRTokens.bgtToken, joinBB, cmpInstID, 0)
         elif relOp == Tokens.gtrToken:  # >
             braInstID = self.ssa.DefineIR(IRTokens.bleToken, joinBB, cmpInstID, 0)
-        elif relOp == Tokens.geqToken:  # >=
+        else:  # elif relOp == Tokens.geqToken:  # >=
             braInstID = self.ssa.DefineIR(IRTokens.bltToken, joinBB, cmpInstID, 0)
 
+        braInstID = braInstID[0]
         self.CheckFor(Tokens.doToken)
 
         # doBlock
-        doBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB])
+        doBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], blockType="do\\n")
 
         # connect join block with do block for loop body
         #self.ssa.AddBlockParent(joinBB, doBB)
@@ -369,15 +371,17 @@ class Parser:
         self.CheckFor(Tokens.odToken)
         self.ssa.AddBlockChild(latestDoBB, joinBB)
         self.ssa.AddBlockParent(joinBB, latestDoBB)
-        self.PrintSSA()
-        print(entryBB, joinBB, doBB, latestDoBB)
-        # reconcile phi function
-        self.ssa.whilePhi(joinBB, latestDoBB, self.identTable)
 
+        # reconcile phi function
         joinFirstID = self.ssa.GetFirstInstInBlock(joinBB)
         self.ssa.DefineIR(IRTokens.braToken, latestDoBB, joinFirstID)
 
-        exitBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB])
+        exitBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], "exit\\n")
+
+        self.ssa.AddBlockChild(joinBB, exitBB)
+        self.PrintSSA()
+        self.ssa.whilePhi(joinBB, latestDoBB, self.identTable)
+
         exitInstID = self.ssa.instructionCount
         self.ssa.ChangeOperands(braInstID, cmpInstID, exitInstID)
 
@@ -404,7 +408,7 @@ class Parser:
 
         ex2, instList2, var2 = self.expression()
 
-        cmpInstID = self.ssa.DefineIR(IRTokens.cmpToken, currBB, ex1, ex2, var1=var1, var2=var2)
+        cmpInstID, _ = self.ssa.DefineIR(IRTokens.cmpToken, currBB, ex1, ex2, var1=var1, var2=var2)
 
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit relation{self.level}')
@@ -427,16 +431,21 @@ class Parser:
             if self.sym == Tokens.plusToken:
                 self.next()
                 op2, instList2, var2 = self.term()
-                instID = self.ssa.DefineIR(IRTokens.addToken, currBB, op1, op2, var1=var, var2=var2)
+                instID, flip = self.ssa.DefineIR(IRTokens.addToken, currBB, op1, op2, var1=var, var2=var2)
                 instList += instList2
-                instList.append((instID, var, var2))
-
+                if flip:
+                    instList.append((instID, var2, var))
+                else:
+                    instList.append((instID, var, var2))
             elif self.sym == Tokens.minusToken:
                 self.next()
                 op2, instList2, var2 = self.term()
-                instID = self.ssa.DefineIR(IRTokens.subToken, currBB, op1, op2, var1=var, var2=var2)
+                instID, flip = self.ssa.DefineIR(IRTokens.subToken, currBB, op1, op2, var1=var, var2=var2)
                 instList += instList2
-                instList.append((instID, var, var2))
+                if flip:
+                    instList.append((instID, var2, var))
+                else:
+                    instList.append((instID, var, var2))
             var = (2, instID)
             if self.debug:
                 opvar = instList
@@ -463,15 +472,21 @@ class Parser:
             if self.sym == Tokens.timesToken:
                 self.next()
                 op2, instList2, var2 = self.factor()
-                instID = self.ssa.DefineIR(IRTokens.mulToken, currBB, instID, op2, var1=var, var2=var2)
+                instID, flip = self.ssa.DefineIR(IRTokens.mulToken, currBB, instID, op2, var1=var, var2=var2)
                 instList += instList2
-                instList.append((instID, var, var2))
+                if flip:
+                    instList.append((instID, var2, var))
+                else:
+                    instList.append((instID, var, var2))
             elif self.sym == Tokens.divToken:
                 self.next()
                 op2, instList2, var2 = self.factor()
-                instID = self.ssa.DefineIR(IRTokens.divToken, currBB, instID, op2, var1=var, var2=var2)
+                instID, flip = self.ssa.DefineIR(IRTokens.divToken, currBB, instID, op2, var1=var, var2=var2)
                 instList += instList2
-                instList.append((instID, var, var2))
+                if flip:
+                    instList.append((instID, var2, var))
+                else:
+                    instList.append((instID, var, var2))
             var = (2, instID)
             if self.debug:
                 opvar = instList
@@ -493,12 +508,15 @@ class Parser:
         # number
         if self.sym == Tokens.number:
             # result = self.t.lastNum
-            instID = self.ssa.DefineIR(IRTokens.constToken, currBB, self.t.lastNum)
+            instID, _ = self.ssa.DefineIR(IRTokens.constToken, currBB, self.t.lastNum)
             operands = (0, instID)
             self.next()
         # designator = ident{ "[" expression "]" }
         elif self.sym > 255:
             # result = self.identTable[self.sym]
+            if self.endVarDecl:
+                if self.sym not in self.identTable:
+                    raise SyntaxError(f"Undeclared variable {self.t.GetTokenStr(self.sym)}.")
             instID = self.ssa.GetVarInstNode(self.sym, currBB)
             varVersion = self.ssa.GetVarVersion(self.sym, currBB)
             operands = (1, (varVersion[0], self.sym))
@@ -522,10 +540,12 @@ class Parser:
 
 
 if __name__ == '__main__':
-    comp = Parser("./tests/whileTests/nestedwhile/basicNestedWhile.txt", True)
+    filePath = './tests/singleBlock/CSEOperandAgnostic'
+    comp = Parser(filePath + ".txt", True)
     #comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()
-    dot = comp.GenerateDot(varMode=True, debugMode=True)
-
+    dot = comp.GenerateDot(varMode=True, debugMode=False)
+    with open(filePath + '.dot', 'w') as f:
+        f.write(dot)
     comp.close()

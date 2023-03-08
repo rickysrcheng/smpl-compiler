@@ -45,7 +45,7 @@ class InstructionNode:
 
 class BasicBlock:
     def __init__(self, bbID: int, valueTable: dict = None, parents: list = None,
-                 dominators: list = None, blockType=None):
+                 dominators: list = None, blockType=""):
 
         # tables needed for SSA tracking
         if valueTable is None:
@@ -77,7 +77,7 @@ class BasicBlock:
         self.bbID = bbID
 
         # bookkeeping
-        self.type = blockType
+        self.blockType = blockType
         self.instructions = []
 
     def AddChild(self, blockID):
