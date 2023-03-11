@@ -259,11 +259,11 @@ class Parser:
 
         braInstID = braInstID[0]
         # create new block and go to statSequence
-        thenID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB], blockType="then\\n")
+        thenID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB], [currBB], blockType="then\\n")
        # print(self.ssa.GetCurrBasicBlock(), self.ssa.GetDomList(thenID))
         self.ssa.AddBlockChild(currBB, thenID)
 
-        joinID = self.ssa.CreateNewBasicBlock(currBBDom, [], blockType='join\\n')
+        joinID = self.ssa.CreateNewBasicBlock(currBBDom, [], [currBB], blockType='join\\n')
 
         self.ssa.SetCurrBasicBlock(thenID)
         self.joinStack.append((0, joinID, currBB))
@@ -291,7 +291,7 @@ class Parser:
             # this branches straight to join block
             jmpID, _ = self.ssa.DefineIR(IRTokens.braToken, latestThenID, 0)
 
-            elseID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB], blockType="else\\n")
+            elseID = self.ssa.CreateNewBasicBlock(currBBDom, [currBB], [currBB], blockType="else\\n")
             self.ssa.AddBlockChild(currBB, elseID)
             self.joinStack.append((1, joinID, currBB))
             self.statSequence()
@@ -329,9 +329,9 @@ class Parser:
 
         #self.ssa.ifElsePhi(latestThenID, joinID, currBB, self.identTable, latestElseID)
 
-        joinFirstInstID = self.ssa.GetFirstInstInBlock(joinID)
-        if joinFirstInstID == -1:
-            joinFirstInstID, _ = self.ssa.DefineIR(IRTokens.emptyToken, joinID)
+        # joinFirstInstID = self.ssa.GetFirstInstInBlock(joinID)
+        # if joinFirstInstID == -1:
+        #     joinFirstInstID, _ = self.ssa.DefineIR(IRTokens.emptyToken, joinID)
 
         if elseExist:
             self.ssa.AddBlockChild(latestElseID, joinID)
@@ -361,13 +361,12 @@ class Parser:
         # Get current basic block
         entryBB = self.ssa.GetCurrBasicBlock()
         entryBBDom = self.ssa.GetDomList(entryBB)
-        #print(entryBB, entryBBDom)
 
         if self.ssa.GetFirstInstInBlock(entryBB) == -1:
             entryFirstInst, _ = self.ssa.DefineIR(IRTokens.emptyToken, entryBB)
 
         # create join block
-        joinBB = self.ssa.CreateNewBasicBlock(entryBBDom, [entryBB], blockType="join\\n")
+        joinBB = self.ssa.CreateNewBasicBlock(entryBBDom, [entryBB], [entryBB], blockType="join\\n", joinType=1)
         joinBBDom = self.ssa.GetDomList(joinBB)
         self.ssa.AddBlockChild(entryBB, joinBB)
 
@@ -392,7 +391,7 @@ class Parser:
         self.CheckFor(Tokens.doToken)
 
         # doBlock
-        doBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], blockType="do\\n")
+        doBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], [joinBB], blockType="do\\n")
 
         # connect join block with do block for loop body
         #self.ssa.AddBlockParent(joinBB, doBB)
@@ -400,7 +399,7 @@ class Parser:
         self.ssa.AddBlockChild(joinBB, doBB)
         self.joinStack.append((2, joinBB, entryBB))
         self.statSequence()
-        self.joinStack.pop()
+
 
         # get the latest block from statSequence, need to add an unconditional branch
         latestDoBB = self.ssa.GetCurrBasicBlock()
@@ -412,12 +411,12 @@ class Parser:
         joinFirstID = self.ssa.GetFirstInstInBlock(joinBB)
         self.ssa.DefineIR(IRTokens.braToken, latestDoBB, joinFirstID)
 
-        exitBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], "exit\\n")
+        exitBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], [joinBB], "exit\\n")
 
         self.ssa.AddBlockChild(joinBB, exitBB)
         self.PrintSSA()
         self.ssa.whilePhi(joinBB, latestDoBB, self.identTable)
-
+        self.joinStack.pop()
         # exitInstID = self.ssa.instructionCount
         # self.ssa.ChangeOperands(braInstID, cmpInstID, exitInstID)
         self.branchInsts.append((1, braInstID, exitBB))

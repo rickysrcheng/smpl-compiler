@@ -5,11 +5,11 @@ var a, i, j;
     let i <- 0;
     let j <- 1;
     while i < 10 do
-        let j<- 1;
         while j < 10 do
             let a <- a*(j + 2);
             let j <- j + 1;
         od;
+        let j<- 1;
         let i <- i + 1;
     od;
 

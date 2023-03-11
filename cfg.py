@@ -19,7 +19,11 @@ class InstructionNode:
         self.BB = bb_id
         self.dependency = []
         self.firstVarPair = firstVarPair
-        self.eliminate = False
+        self.active = True
+        self.local = False
+
+    def setInstruction(self, instruction):
+        self.instruction = instruction
 
     def setOperands(self, operand1: int = None, operand2: int = None):
         """
@@ -39,13 +43,18 @@ class InstructionNode:
     def addVarDependency(self, var):
         self.dependency.append(var)
 
+    def setActiveStatus(self, status):
+        self.active = status
+
     def PrintInstruction(self):
         print(f'{self.instID} {self.instruction} {self.operand1} {self.operand2} {self.BB}')
 
 
+
 class BasicBlock:
     def __init__(self, bbID: int, valueTable: dict = None, parents: list = None,
-                 dominators: list = None, blockType=""):
+                 dominators: list = None, idominators: list = None, blockType="",
+                 joinType=0):
 
         # tables needed for SSA tracking
         if valueTable is None:
@@ -73,11 +82,15 @@ class BasicBlock:
         self.dominators = [bbID]
         if dominators is not None:
             self.dominators += dominators
+        self.idominators = []
+        if idominators is not None:
+            self.idominators += idominators
 
         self.bbID = bbID
 
         # bookkeeping
         self.blockType = blockType
+        self.joinType = joinType
         self.instructions = []
 
     def AddChild(self, blockID):
@@ -89,6 +102,9 @@ class BasicBlock:
 
     def AddDominator(self, block):
         self.dominators.append(block)
+
+    def AddIDominator(self, block):
+        self.idominators.append(block)
 
     def AddNewOp(self, op, operand1, operand2, instID):
         self.opTables[op].insert(0, (instID, operand1, operand2))

@@ -37,7 +37,7 @@ class SSA:
             IRTokens.writeNLToken: 'writeNL'
         }
 
-        self.unassignableInstruction = [
+        self.uncopyableInstruction = [
             IRTokens.endToken,
 
             IRTokens.braToken,
@@ -56,11 +56,10 @@ class SSA:
             IRTokens.emptyToken
         ]
 
+        # it's commutative, not agnostic
         self.operandAgnostic = [
             IRTokens.addToken,
-            # IRTokens.subToken, a - b != b - a
             IRTokens.mulToken
-            # IRTokens.divToken a/b != b/a
         ]
 
         self.instructionCount = 0  # always incrementing
@@ -76,9 +75,12 @@ class SSA:
         self.BBList[0].AddChild(block1.bbID)
         block1.AddParent(0)
         block1.AddDominator(0)
+        block1.AddIDominator(0)
         self.BBList.append(block1)
         self.CurrentBasicBlock = 1
         self.t = tokenizer
+
+        self.phiNodes = []
 
     def GetNextBBID(self):
         # Gets the next BBID and increments BBID count
@@ -124,8 +126,8 @@ class SSA:
                 self.BBList[0].opTables[operation].insert(0, (instID, operand1))
             else:
                 instruction = InstructionNode(operation, operand1, operand2, instID, bb_id, firstVarPair=(var1, var2))
-                print(
-                    f'Instruction made: ({instID}, {self.CurrentBasicBlock}): {self.opDct[operation]} {operand1} {operand2}')
+                print(f'Instruction made: ({instID}, {self.CurrentBasicBlock}): '
+                      f'{self.opDct[operation]} {operand1} {operand2}')
                 self.instructionList.append(instruction)
                 if inst_position != -1:
                     self.BBList[bb_id].instructions.insert(inst_position, instID)
@@ -147,8 +149,17 @@ class SSA:
                 self.BBList[bb_id].opTables[operation].insert(0, (instID, operand1, operand2))
         return instID, False
 
+    def GetInstNode(self, instID):
+        return self.instructionList[instID]
+
     def ChangeOperands(self, instID, op1=None, op2=None):
         self.instructionList[instID].setOperands(op1, op2)
+
+    def ChangeVarPair(self, instID, tup):
+        self.instructionList[instID].setFirstVarPair(tup)
+
+    def ChangeInstruction(self, instID, instruction):
+        self.instructionList[instID].setInstruction(instruction)
 
     def AddInstDependency(self, instID, var):
         self.instructionList[instID].addVarDependency(var)
@@ -164,7 +175,9 @@ class SSA:
         :return:
         """
         # essentially, these instructions are not assignable
-        if operation in self.unassignableInstruction:
+        # each instance of it is unique
+        # eg. the read at inst i is not going to be the same as read at inst j
+        if operation in self.uncopyableInstruction:
             return -1
 
         if operation == IRTokens.constToken:
@@ -226,15 +239,17 @@ class SSA:
         dom_list = self.BBList[blockID].dominators
         for dom_block in dom_list:
             if varToken in self.BBList[dom_block].valueTable:
-                # return first entry
-                return self.BBList[dom_block].valueTable[varToken][0][1]
+                # return first entry that is active
+                for version in self.BBList[dom_block].valueTable[varToken]:
+                    if self.instructionList[version[1]].active:
+                        return self.BBList[dom_block].valueTable[varToken][0][1]
         # if we reached here, that means this variable does not have a value
         print("WARNING: variable not instantiated. Assigning variable with value 0.")
         instID, _ = self.DefineIR(IRTokens.constToken, self.CurrentBasicBlock, 0)
         self.AssignVariable(varToken, instID, self.CurrentBasicBlock)
         return instID
 
-    def GetVarVersion(self, varToken, bb_id: int = -1, varVersion: int = -1, prevBB=False):
+    def GetVarVersion(self, varToken, bb_id: int = -1, varVersion: int = -1, prevBB=False, phi=False):
         """
         Finds the SSA version of the program variable
         If variable does not exist in record, return (-1, -1, -1).
@@ -251,16 +266,17 @@ class SSA:
         for dom_block in dom_list:
             if not prevBB or dom_block != bb_id:
                 if varToken in self.BBList[dom_block].valueTable:
-                    # return first entry
-                    if varVersion == -1:
-                        return self.BBList[dom_block].valueTable[varToken][0]
-                    else:
-                        for version in self.BBList[dom_block].valueTable[varToken]:
-                            if version[0] == varVersion:
+                    # if we're not looking for a particular version
+                    # return first entry that contains active instruction
+                    for version in self.BBList[dom_block].valueTable[varToken]:
+                        if varVersion == -1:
+                            if self.instructionList[version[1]].active or phi:
                                 return version
+                        if version[0] == varVersion:
+                            return version
         return -1, -1, -1
 
-    def CreateNewBasicBlock(self, dom_list, parent_list, blockType=""):
+    def CreateNewBasicBlock(self, dom_list, parent_list, idom_list, blockType="", joinType=0):
         """
         Creates a new block and sets current basic block to new block
         :param dom_list: list of blocks that dominate this block
@@ -268,40 +284,52 @@ class SSA:
         :return: ID of this block
         """
         BBID = self.GetNextBBID()
-        block = BasicBlock(BBID, None, parent_list, dom_list, blockType=blockType)
+        block = BasicBlock(BBID, None, parent_list, dom_list, idom_list, blockType=blockType, joinType=joinType)
         self.BBList.append(block)
         self.CurrentBasicBlock = BBID
         return BBID
 
     def AddPhiNode(self, identToken, firstSSA, joinBlocks, currBB):
+        # Adds a phi node to the iterated dominance frontier, aka the joinBlocks
+        # Join block characteristics:
+        #     if/else: phi nodes will always be the first ones inserted
+
+        #     while:
+        # Algorithm:
+        #  Loop through the IDF, from the innermost block
+        #      Three cases:
+        #
         ssaVal = firstSSA
+        ssaBB = currBB
         print(f'IN ADD PHI {self.t.GetTokenStr(identToken)}, {identToken}, joins: {joinBlocks}')
         whilePhi = []
         for opType, joinID, entryID in reversed(joinBlocks):
-            phiInstVar = self.GetVarVersion(identToken, joinID)
+            phiInstVar = self.GetVarVersion(identToken, joinID, phi=True)
             entryInstVar = self.GetVarVersion(identToken, entryID)
 
             # if phi function does not exist in the join block yet
             #    create phi function
             if phiInstVar[1] == entryInstVar[1] and phiInstVar[1] != -1:
-                if opType == 0 or opType == 2:
+                if opType == 0:# or opType == 2:
                     op1 = ssaVal
                     op2 = entryInstVar[1]
                 else:
                     op1 = entryInstVar[1]
                     op2 = ssaVal
-                ssaVal, _ = self.DefineIR(IRTokens.phiToken, joinID, op1, op2)
-                if opType == 2:
-                    whilePhi.append((joinID, ssaVal))
-                self.AssignVariable(identToken, ssaVal, joinID)
-                print(f"INSERT PHI {op1} {op2}")
+                if op1 != op2:
+                    ssaVal, _ = self.DefineIR(IRTokens.phiToken, joinID, op1, op2, var1=(1, (0, identToken)),
+                                              var2=(1,(0, identToken)))
+                    if opType == 2:
+                        whilePhi.append((joinID, ssaVal))
+                    self.AssignVariable(identToken, ssaVal, joinID)
+                    print(f"INSERT PHI {op1} {op2}")
             # otherwise, some function exists
             #     this means that the identToken is a later assignment than the previous
             #     assignment and should be updated to this
             elif phiInstVar[1] != entryInstVar[1] and phiInstVar[1] != -1:
                 phiInstNode = self.instructionList[phiInstVar[1]]
                 if phiInstNode.instruction == IRTokens.phiToken:
-                    if opType == 0 or opType == 2:
+                    if opType == 0:# or opType == 2:
                         op1 = ssaVal
                         op2 = phiInstNode.operand2
                     else:
@@ -309,33 +337,42 @@ class SSA:
                         op2 = ssaVal
                     if opType == 2:
                         whilePhi.append((joinID, phiInstNode.instID))
+
                     phiInstNode.setOperands(op1, op2)
-                    ssaVal = phiInstNode.instID
+                    # we then check if the phi node is actually needed
+                    # if it is, then we set it to active
+                    if op1 != op2:
+                        phiInstNode.setActiveStatus(True)
+                        ssaVal = phiInstNode.instID
+                    else:
+                        phiInstNode.setActiveStatus(False)
                 else:
                     # this occurs when there's an assignment in the join block
                     #  happens when we use uninitialized variables in relation
-                    if opType == 0 or opType == 2:
+                    if opType == 0:# or opType == 2:
                         op1 = ssaVal
                         op2 = phiInstNode.instID
                     else:
                         op1 = phiInstNode.instID
                         op2 = ssaVal
-                    ssaVal, _ = self.DefineIR(IRTokens.phiToken, joinID, op1, op2)
+                    ssaVal, _ = self.DefineIR(IRTokens.phiToken, joinID, op1, op2, var1=(1, (0, identToken)),
+                                              var2=(1,(0, identToken)))
                     if opType == 2:
                         whilePhi.append((joinID, ssaVal))
                     self.AssignVariable(identToken, ssaVal, joinID)
             else:
                 # if we're here, that means that the variable was initialized inside an inner block
-                print("WARNING: Variable initialized inside inner statements. Assigning 0 to outer scope.")
+                print("WARNING: Variable initialized inside inner scope.")
                 zeroInstID, _ = self.DefineIR(IRTokens.constToken, joinID, 0)
                 self.AssignVariable(identToken, zeroInstID, joinID)
-                if opType == 0 or opType == 2:
+                if opType == 0:# or opType == 2:
                     op1 = ssaVal
                     op2 = zeroInstID
                 else:
                     op1 = zeroInstID
                     op2 = ssaVal
-                ssaVal, _ = self.DefineIR(IRTokens.phiToken, joinID, op1, op2)
+                ssaVal, _ = self.DefineIR(IRTokens.phiToken, joinID, op1, op2, var1=(1, (0, identToken)),
+                                              var2=(1,(0, identToken)))
                 if opType == 2:
                     whilePhi.append((joinID, ssaVal))
                 self.AssignVariable(identToken, ssaVal, joinID)
@@ -345,10 +382,10 @@ class SSA:
         # rule: if the outer join is while, then entrySSA should be whileSSA value
         #       if the outer join is if/else, then entrySSA should stay as is
         for joinID, instID in whilePhi:
-            op2 = self.GetVarVersion(identToken, joinID, prevBB=True)[1]
+            op1 = self.GetVarVersion(identToken, joinID, prevBB=True)[1]
             print(self.instructionList[instID])
-            if op2 != -1:
-                phiInstNode = self.instructionList[instID].setOperands(operand2=op2)
+            if op1 != -1:
+                phiInstNode = self.instructionList[instID].setOperands(operand1=op1)
 
     def whilePhi(self, joinID, latestDoID, varEntries):
         print(f"IN WHILE PHI! Parameters: {joinID} {latestDoID}")
@@ -377,18 +414,6 @@ class SSA:
 
                 self.whilePhiBBHelper1(currID, joinID)
                 self.whilePhiBBHelper2(currID, joinID)
-                self.whilePhiBBHelper2(currID, joinID)
-
-        # there should only be phi nodes assignments in join block
-        # ^not true, case with uninitialized variables
-        # but latest version should only be phi nodes
-        # for k, v in self.BBList[joinID].valueTable.items():
-        #     instID = v[0][1]
-        #     doSSA = self.GetVarVersion(k, latestDoID)
-        #
-        #     instNode = self.instructionList[instID]
-        #     if instNode.instruction == IRTokens.phiToken:
-        #         instNode.setOperands(doSSA[1], instNode.operand2)
 
         print('EXITING PHI')
 
@@ -418,7 +443,22 @@ class SSA:
                     if self.BBList[bbID].opTables[currNode.instruction][opIdx] == (currNode.instID, oldOp1, oldOp2):
                         self.BBList[bbID].opTables[currNode.instruction][opIdx] = (currNode.instID, op1, op2)
                         break
+            elif currNode.instruction == IRTokens.phiToken:
+                if self.BBList[bbID].joinType == 1:
+                    ident = currNode.firstVarPair[0][1][1]
+                    op1 = self.GetVarVersion(ident, bbID, prevBB=True)[1]
+                    if op1 != -1:
+                        self.ChangeOperands(currNode.instID, op1=op1)
 
+
+                # oldOp1 = currNode.operand1
+                # oldOp2 = currNode.operand2
+                # nodeVar1 = currNode.firstVarPair[0]
+                # nodeVar2 = currNode.firstVarPair[1]
+                # op1 = self.whilePhiGetNodeInstID(nodeVar1, currNode.instID, bbID, joinID)
+                # op2 = self.whilePhiGetNodeInstID(nodeVar2, currNode.instID, bbID, joinID)
+                #
+                # currNode.setOperands(op1, op2)
     def whilePhiBBHelper2(self, bbID, joinID):
         # now we go through each variable's history.
         # history is in chronological order of creation.
@@ -442,13 +482,13 @@ class SSA:
                         nodeVar1 = hist[1]
                         nodeVar2 = hist[2]
 
-                        histOp1 = self.whilePhiGetNodeInstID(nodeVar1, instID, bbID, joinID)
-                        if histOp1 in instChanges:
-                            histOp1 = instChanges[histOp1]
+                        newSSAOp1 = self.whilePhiGetNodeInstID(nodeVar1, instID, bbID, joinID)
+                        if newSSAOp1 in instChanges:
+                            newSSAOp1 = instChanges[newSSAOp1]
 
-                        histOp2 = self.whilePhiGetNodeInstID(nodeVar2, instID, bbID, joinID)
-                        if histOp2 in instChanges:
-                            histOp2 = instChanges[histOp2]
+                        newSSAOp2 = self.whilePhiGetNodeInstID(nodeVar2, instID, bbID, joinID)
+                        if newSSAOp2 in instChanges:
+                            newSSAOp2 = instChanges[newSSAOp2]
 
                         instNode = self.instructionList[instID]
                         op1 = instNode.operand1
@@ -458,25 +498,43 @@ class SSA:
                         #    1. some intermediate SSA values have been changed
                         #       but the original variables are the same
                         #    2. or we need to create a new SSA instruction
-                        if op1 != histOp1 or op2 != histOp2:
-                            node1TF = nodeVar1[0] == 1 and instNode.firstVarPair[0] == nodeVar1
-                            node2TF = nodeVar2[0] == 1 and instNode.firstVarPair[1] == nodeVar2
+                        if op1 != newSSAOp1 or op2 != newSSAOp2:
+                            node1TF = False
+                            node2Tf = False
+                            instBBID = self.FindInstBlock(instID)
+                            if nodeVar1[0] == 1 and instNode.firstVarPair[0] == nodeVar1:
+                                varVers = self.GetVarVersion(nodeVar1[1][1], instBBID)[1]
+                                if varVers != op1 and instBBID != bbID:
+                                    node1TF = True
+                            if nodeVar2[0] == 1 and instNode.firstVarPair[1] == nodeVar2:
+                                varVers = self.GetVarVersion(nodeVar2[1][1], instBBID)[1]
+                                if varVers != op2 and instBBID != bbID:
+                                    node2TF = True
+
                             if node1TF and node2TF:
-                                instNode.setOperands(histOp1, histOp2)
+                                instNode.setOperands(newSSAOp1, newSSAOp2)
                             else:
                                 newNodeVar1 = nodeVar1
                                 if nodeVar1[0] != 1:
-                                    newNodeVar1 = (nodeVar1[0], histOp1)
+                                    newNodeVar1 = (nodeVar1[0], newSSAOp1)
                                 newNodeVar2 = nodeVar2
                                 if nodeVar2[0] != 1:
-                                    newNodeVar2 = (nodeVar2[0], histOp2)
+                                    newNodeVar2 = (nodeVar2[0], newSSAOp2)
 
-                                instPos = self.GetInstPosInBB(instID, bbID)
-                                instPos += 1
-                                newInstID, flip = self.DefineIR(instNode.instruction, bb_id=bbID,
-                                                                operand1=histOp1, operand2=histOp2,
-                                                                inst_position=instPos, var1=newNodeVar1,
-                                                                var2=newNodeVar2)
+                                bbFirstInst = self.GetFirstInstInBlock(bbID)
+                                flip = False
+                                if self.instructionList[bbFirstInst].instruction == IRTokens.emptyToken:
+                                    self.ChangeOperands(bbFirstInst, newSSAOp1, newSSAOp2)
+                                    self.ChangeInstruction(bbFirstInst, instNode.instruction)
+                                    self.ChangeVarPair(bbFirstInst, (newNodeVar1, newNodeVar2))
+                                    newInstID = bbFirstInst
+                                else:
+                                    instPos = self.GetInstPosInBB(instID, bbID)
+                                    instPos += 1
+                                    newInstID, flip = self.DefineIR(instNode.instruction, bb_id=bbID,
+                                                                    operand1=newSSAOp1, operand2=newSSAOp2,
+                                                                    inst_position=instPos, var1=newNodeVar1,
+                                                                    var2=newNodeVar2)
                                 instChanges[instID] = newInstID
                                 instID = newInstID
                                 if flip:
@@ -493,7 +551,11 @@ class SSA:
                     self.BBList[bbID].valueTable[k][i] = (ver, ssaInstID, newHist)
                     self.whilePhiBBHelper1(bbID, joinID)
 
+
+
     def whilePhiGetNodeInstID(self, nodeVar, currInstID, bbID, joinID):
+        # this function selects the correct ssa value for the variable
+        #     it looks inside the joinID provided
         op = None
         currInstPos = self.GetInstPosInBB(currInstID, bbID)
         if nodeVar is not None:
@@ -529,6 +591,13 @@ class SSA:
                 else:
                     op = self.GetVarVersion(nodeVar[1][1], bbID)[1]
         return op
+
+    def FindInstBlock(self, instID):
+        for block in self.BBList:
+            for inst in block.instructions:
+                if self.instructionList[inst].instID == instID:
+                    return block.bbID
+        return -1
 
     def GetCurrBasicBlock(self):
         return self.CurrentBasicBlock
@@ -620,6 +689,8 @@ class SSA:
             lenInst = len(block.instructions)
             for i in range(lenInst):
                 inst = self.instructionList[block.instructions[i]]
+                if not inst.active:
+                    continue
                 op1 = ""
                 op2 = ""
                 if inst.operand1 is not None:
@@ -713,7 +784,7 @@ class SSA:
                             edgeInfo += "[label=\"fall-through\"]"
                 edgeInfo += ";"
                 dagSect.append(edgeInfo)
-            for domID in block.dominators:
+            for domID in block.idominators:
                 if domID != block.bbID and domID > 0:
                     domInfo = f"\tbb{domID}:b -> bb{block.bbID}:b [color=\"{color[domID % len(color)]}\", " \
                               f"style=dashed, label=\"dom\"];"
