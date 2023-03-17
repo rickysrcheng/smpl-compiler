@@ -389,15 +389,14 @@ class Parser:
 
         braInstID = braInstID[0]
         self.CheckFor(Tokens.doToken)
-
+        self.joinStack.append((2, joinBB, entryBB))
         # doBlock
-        doBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], [joinBB], blockType="do\\n")
+        doBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], [joinBB], blockType="do\\n", joinBlocks=self.joinStack)
 
         # connect join block with do block for loop body
         #self.ssa.AddBlockParent(joinBB, doBB)
         #self.ssa.AddBlockChild(doBB, joinBB)
         self.ssa.AddBlockChild(joinBB, doBB)
-        self.joinStack.append((2, joinBB, entryBB))
         self.statSequence()
 
 
@@ -417,6 +416,7 @@ class Parser:
         self.PrintSSA()
         self.ssa.whilePhi(joinBB, latestDoBB, self.identTable)
         self.joinStack.pop()
+        self.ssa.AddBlockJoinStack(exitBB, self.joinStack)
         # exitInstID = self.ssa.instructionCount
         # self.ssa.ChangeOperands(braInstID, cmpInstID, exitInstID)
         self.branchInsts.append((1, braInstID, exitBB))
@@ -581,7 +581,7 @@ if __name__ == '__main__':
     comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()
-    dot = comp.GenerateDot(varMode=True, debugMode=True)
+    dot = comp.GenerateDot(varMode=True, debugMode=False)
     # with open(filePath + '.dot', 'w') as f:
     #     f.write(dot)
     comp.close()

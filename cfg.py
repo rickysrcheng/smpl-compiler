@@ -54,7 +54,7 @@ class InstructionNode:
 class BasicBlock:
     def __init__(self, bbID: int, valueTable: dict = None, parents: list = None,
                  dominators: list = None, idominators: list = None, blockType="",
-                 joinType=0):
+                 joinType=0, joinBlocks=None):
 
         # tables needed for SSA tracking
         if valueTable is None:
@@ -85,7 +85,9 @@ class BasicBlock:
         self.idominators = []
         if idominators is not None:
             self.idominators += idominators
-
+        self.joinBlocks = []
+        if joinBlocks is not None:
+            self.joinBlocks = joinBlocks
         self.bbID = bbID
 
         # bookkeeping
@@ -108,3 +110,6 @@ class BasicBlock:
 
     def AddNewOp(self, op, operand1, operand2, instID):
         self.opTables[op].insert(0, (instID, operand1, operand2))
+
+    def AddJoinBlocks(self, joinBlocks):
+        self.joinBlocks = joinBlocks

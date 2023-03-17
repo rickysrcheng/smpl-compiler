@@ -1,20 +1,11 @@
 main
-var a,i,j,y,b;
-{
-    let b <- 5;
-    let i <- 1;
-    let j <- 1;
-    let y <- j;
-    let a <- i;
-
-    while i + j + y + a < 10 do
-        let y <- a*y;
-        let y <- (j + 1) + (j + 2);
-        let a <- (i + 1) + (j + 2);
-        let i <- (i + 1) + (i + 2);
-        let y <- j;
-    od;
-
-    let b <- (a + b + i + j)*y;
-    let a <- a + b;
+var a, b; {
+    let a <- call InputNum();
+    let b <- 10;
+    if a < 10
+    then
+        let a <- b;
+    else
+        let a <- b;
+    fi;
 }.
