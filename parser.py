@@ -2,6 +2,8 @@ import tokenizer
 import tokens
 from tokens import *
 import ssa
+from operator import mul
+from functools import reduce
 
 
 class Parser:
@@ -13,9 +15,12 @@ class Parser:
         self.endVarDecl = True
         self.collectArr = False
         self.identTable = []
-        self.arrayTable = []
+        self.arrayDict = {}
+        self.arrayOffset = {}
+        self.arrayAddress = {}
         self.level = 0
         self.spacing = 2
+        self.dataBaseAddr = -1
 
         self.relOp = [Tokens.eqlToken, Tokens.neqToken,
                       Tokens.geqToken, Tokens.leqToken,
@@ -71,6 +76,7 @@ class Parser:
         # varDecl = typeDecl indent { “,” ident } “;”
         self.endVarDecl = True
         self.collectArr = False
+        dataBase = False
         arrSize = []
         while self.sym != Tokens.funcToken and self.sym != Tokens.beginToken:
             # typeDecl = “var” | “array” “[“ number “]” { “[“ number “]”}
@@ -78,6 +84,9 @@ class Parser:
                 self.next()
                 self.endVarDecl = False
             elif self.sym == Tokens.arrToken:
+                if not dataBase:
+                    self.dataBaseAddr, _ = self.ssa.DefineIR(IRTokens.constToken, 0, "Base")
+                    dataBase = True
                 self.collectArr = True
                 self.endVarDecl = False
                 self.next()
@@ -88,7 +97,11 @@ class Parser:
             if not self.endVarDecl:
                 if self.sym > 255:
                     if self.collectArr:
-                        self.arrayTable.append((self.sym, tuple(arrSize)))
+                        self.arrayDict[self.sym] = tuple(arrSize)
+                        self.arrayOffset[self.sym] = tuple(self.defineOffsets(arrSize))
+                        self.arrayAddress[self.sym], _ = self.ssa.DefineIR(IRTokens.constToken, 0,
+                                                                           f'{self.t.GetTokenStr(self.sym)}BaseAddr')
+                        #self.arrayTable.append((self.sym, tuple(arrSize)))
                     else:
                         self.identTable.append(self.sym)
                     self.next()
@@ -108,7 +121,7 @@ class Parser:
         # Function instantiation
         if self.sym == Tokens.funcToken:
             pass
-
+        print(self.arrayDict)
         # move to statSequence
         self.CheckFor(Tokens.beginToken)
         self.statSequence()
@@ -132,8 +145,22 @@ class Parser:
         self.CheckFor(Tokens.openbracketToken)
         self.CheckFor(Tokens.number)
         size = self.t.lastNum
+        #self.ssa.DefineIR(IRTokens.constToken, 0, self.t.lastNum)
         self.CheckFor(Tokens.closebracketToken)
         return size
+
+    def defineOffsets(self, arrSize):
+        # precomputes the memory offsets in arrays
+        totalSize = reduce(mul, arrSize)
+        offsetSizes = []
+        currOffset = 1
+        for i in range(len(arrSize) - 1):
+            currOffset *= arrSize[i]
+            offset = totalSize//currOffset
+            instID, _ = self.ssa.DefineIR(IRTokens.constToken, 0, offset)
+            offsetSizes.append((offset, instID))
+        offsetSizes.append((1, -1))
+        return offsetSizes
 
     def statSequence(self):
         # statSequence = statement { “;” statement } [ “;” ]
@@ -181,18 +208,34 @@ class Parser:
             pass
         ident = self.sym
         self.next()
-        self.CheckFor(Tokens.becomesToken)
-
+        LHSArray = False
         currBB = self.ssa.GetCurrBasicBlock()
+        if ident in self.identTable:
+            self.CheckFor(Tokens.becomesToken)
+        elif ident in self.arrayDict:
+            LHSArray = True
+            arrBaseInstID, offsetID, instList = self.arrayAddrInstCalculation(ident, currBB)
+            self.CheckFor(Tokens.becomesToken)
+
         instNode, instList, operands = self.expression()
-        (version, inst, op) = self.ssa.AssignVariable(ident, instNode, currBB, instList)
-        self.ssa.AddPhiNode(ident, inst, self.joinStack, currBB)
+        varAssign = False
+        # used in copy propagation. we want to save a copy of this version
+        if len(instList) == 0 and operands[0] == 1:
+            varAssign = True
+            instList = [operands]
+        if LHSArray:
+            instID, _ = self.ssa.DefineIR(IRTokens.storeToken, currBB, arrBaseInstID, offsetID, storeData=instNode)
+            self.ssa.AddKillInst(ident, self.joinStack, currBB, arrBaseInstID)
+        else:
+            (version, inst, op) = self.ssa.AssignVariable(ident, instNode, currBB, instList, varAssign=varAssign)
+            self.ssa.AddPhiNode(ident, inst, self.joinStack, currBB, varAssign=varAssign, operands=operands)
 
         if self.debug:
             print(f'Assigning {self.t.GetTokenStr(ident)} to {instNode}, {operands}')
             print(f'Dependency of {self.t.GetTokenStr(ident)} {instList}')
-        for n in instList:
-            self.ssa.AddInstDependency(n[0], (version, ident))
+        if not LHSArray and not varAssign:
+            for n in instList:
+                self.ssa.AddInstDependency(n[0], (version, ident))
         if self.debug:
             print(f'{" " * self.level * self.spacing}Exit assignment{self.level}')
         self.level -= 1
@@ -219,8 +262,8 @@ class Parser:
         elif self.sym == Tokens.outputNumToken:
             self.next()
             self.CheckFor(Tokens.openparenToken)
-            opID, _, _ = self.expression()
-            instID, _ = self.ssa.DefineIR(IRTokens.writeToken, self.ssa.GetCurrBasicBlock(), opID)
+            opID, instList, operand = self.expression()
+            instID, _ = self.ssa.DefineIR(IRTokens.writeToken, self.ssa.GetCurrBasicBlock(), opID, var1=operand)
             self.CheckFor(Tokens.closeparenToken)
         else:
             instID = 0
@@ -551,12 +594,21 @@ class Parser:
         elif self.sym > 255:
             # result = self.identTable[self.sym]
             if self.endVarDecl:
-                if self.sym not in self.identTable:
+                if self.sym not in self.identTable and self.sym not in self.arrayDict.keys():
                     raise SyntaxError(f"Undeclared variable {self.t.GetTokenStr(self.sym)}.")
-            instID = self.ssa.GetVarInstNode(self.sym, currBB)
-            varVersion = self.ssa.GetVarVersion(self.sym, currBB)
-            operands = (1, (varVersion[0], self.sym))
-            self.next()
+            if self.sym in self.identTable:
+                instID = self.ssa.GetVarInstNode(self.sym, currBB)
+                varVersion = self.ssa.GetVarVersion(self.sym, currBB)
+                operands = (1, (varVersion[0], self.sym))
+                self.next()
+            elif self.sym in self.arrayDict:
+                print("Loading array")
+                ident = self.sym
+                self.next()
+                arrBaseInstID, offSetID, instList = self.arrayAddrInstCalculation(ident, currBB)
+                instID, _ = self.ssa.DefineIR(IRTokens.loadToken, currBB, arrBaseInstID, offSetID)
+                operands = (2, instID)
+
         # “(“ expression “)”
         elif self.sym == Tokens.openparenToken:
             self.next()
@@ -574,6 +626,61 @@ class Parser:
         self.level -= 1
         return instID, instList, operands
 
+    def arrayAddrInstCalculation(self, ident, currBB):
+        print("in load array")
+        print(self.ssa.instructionList)
+        arrSize = self.arrayDict[ident]
+        offSets = self.arrayOffset[ident]
+        sumOffsetID = -1
+        prevInstID = -1
+        arrBaseInstID, flip = self.ssa.DefineIR(IRTokens.addToken, currBB, self.dataBaseAddr, self.arrayAddress[ident],
+                                                var1=(0, self.dataBaseAddr), var2=(0,self.arrayAddress[ident]))
+        loadInstList = []
+        # address offset calculations
+        # whatever expression is calculated above needs to be multiplied with the precomputed offset
+        # A[M][N][O]
+        # ex A[i][j][k] loads the address: (base + a_base) + 4*((N*O * i) + (O * j) + k)
+        # the offset is precomputed in self.arrayOffset, so for example, A's offset would have [N*O, O, 1]
+
+        for i in range(len(arrSize)):
+            self.CheckFor(Tokens.openbracketToken)
+            instID, instList, operands = self.expression()
+            loadInstList += instList
+            self.CheckFor(Tokens.closebracketToken)
+            # the last offset is always 1, so no need to multiply it
+            if offSets[i][1] != -1:
+                instID, flip = self.ssa.DefineIR(IRTokens.mulToken, currBB,
+                                              instID, offSets[i][1], var1=operands, var2=(0, offSets[i][1]))
+                if flip:
+                    loadInstList.append((instID, (0, offSets[i][1]), operands))
+                else:
+                    loadInstList.append((instID, operands, (0, offSets[i][1])))
+                operands = (2, instID)
+
+            if i > 0:
+                if sumOffsetID == -1:
+                    sumOffsetID, _ = self.ssa.DefineIR(IRTokens.addToken, currBB, prevInstID, instID,
+                                                       var1=(2, prevInstID), var2=operands)
+                    if flip:
+                        loadInstList.append((instID, operands, (2, prevInstID)))
+                    else:
+                        loadInstList.append((instID, (2, prevInstID), operands))
+                else:
+                    sumOffsetID, _ = self.ssa.DefineIR(IRTokens.addToken, currBB, sumOffsetID, instID,
+                                                       var1=(2, sumOffsetID), var2=operands)
+                    if flip:
+                        loadInstList.append((instID, operands, (2, sumOffsetID)))
+                    else:
+                        loadInstList.append((instID, (2, sumOffsetID), operands))
+            prevInstID = instID
+        wordSize, _ = self.ssa.DefineIR(IRTokens.constToken, currBB, 4)
+        offSetID, flip = self.ssa.DefineIR(IRTokens.mulToken, currBB, instID, wordSize, var1=operands, var2=(0, wordSize))
+        if flip:
+            loadInstList.append((offSetID, (0, wordSize), operands))
+        else:
+            loadInstList.append((offSetID, operands, (0, wordSize)))
+
+        return arrBaseInstID, offSetID, loadInstList
 
 if __name__ == '__main__':
     filePath = './tests/whileTests/whileCSERelations'
@@ -581,7 +688,7 @@ if __name__ == '__main__':
     comp = Parser("./test.txt", True)
     comp.computation()
     comp.PrintSSA()
-    dot = comp.GenerateDot(varMode=True, debugMode=False)
+    dot = comp.GenerateDot(varMode=True, debugMode=True)
     # with open(filePath + '.dot', 'w') as f:
     #     f.write(dot)
     comp.close()

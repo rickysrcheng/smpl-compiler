@@ -90,6 +90,8 @@ class BasicBlock:
             self.joinBlocks = joinBlocks
         self.bbID = bbID
 
+        self.loadStore = []
+
         # bookkeeping
         self.blockType = blockType
         self.joinType = joinType

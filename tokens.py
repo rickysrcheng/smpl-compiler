@@ -75,6 +75,7 @@ class IRTokens(IntEnum):
     loadToken = 21
     storeToken = 22
     phiToken = 23
+    killToken = 24
 
     endToken = 30
 
