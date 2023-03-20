@@ -121,7 +121,6 @@ class Parser:
         # Function instantiation
         if self.sym == Tokens.funcToken:
             pass
-        print(self.arrayDict)
         # move to statSequence
         self.CheckFor(Tokens.beginToken)
         self.statSequence()
@@ -607,7 +606,8 @@ class Parser:
                 self.next()
                 arrBaseInstID, offSetID, instList = self.arrayAddrInstCalculation(ident, currBB)
                 instID, _ = self.ssa.DefineIR(IRTokens.loadToken, currBB, arrBaseInstID, offSetID)
-                operands = (2, instID)
+
+                operands = (3, (0, arrBaseInstID, offSetID))
 
         # “(“ expression “)”
         elif self.sym == Tokens.openparenToken:
@@ -682,13 +682,15 @@ class Parser:
 
         return arrBaseInstID, offSetID, loadInstList
 
+
 if __name__ == '__main__':
     filePath = './tests/whileTests/whileCSERelations'
-    comp = Parser(filePath + ".txt", True)
-    comp = Parser("./test.txt", True)
+    #comp = Parser(filePath + ".txt", True)
+    comp = Parser("./test.txt", False)
     comp.computation()
     comp.PrintSSA()
     dot = comp.GenerateDot(varMode=True, debugMode=True)
     # with open(filePath + '.dot', 'w') as f:
     #     f.write(dot)
+    print(dot)
     comp.close()

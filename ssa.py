@@ -113,7 +113,7 @@ class SSA:
         :return: instruction node ID (either one seen previously or a newly generated one)
         """
 
-        instID = self.FindPreviousInst(operation, operand1, operand2, bb_id)
+        instID = self.FindPreviousInst(operation, operand1, operand2, bb_id, inst_position=inst_position)
         # if no instructions are found, create a new instruction
         if instID == -1 or operation == IRTokens.phiToken:
             if operation in self.operandAgnostic:
@@ -123,7 +123,7 @@ class SSA:
             instID = self.GetNextInstID()
             if operation == IRTokens.constToken:
                 instruction = InstructionNode(operation, operand1, operand2, instID, 0, firstVarPair=(var1, var2))
-                print(f'Instruction made: ({instID}, {0}): {self.opDct[operation]} {operand1} {operand2}')
+                #print(f'Instruction made: ({instID}, {0}): {self.opDct[operation]} {operand1} {operand2}')
                 self.instructionList.append(instruction)
                 self.BBList[0].instructions.append(instID)
                 self.BBList[0].opTables[operation].insert(0, (instID, operand1))
@@ -134,13 +134,17 @@ class SSA:
                     # construct the adda command
                     addaInst = InstructionNode(IRTokens.addaToken, operand1, operand2, instID, bb_id, firstVarPair=(var1, var2))
                     self.instructionList.append(addaInst)
-                    self.BBList[bb_id].instructions.append(instID)
 
                     # then we construct the load/store command
                     memInstID = self.GetNextInstID()
                     memInst = InstructionNode(operation, instID, storeData, memInstID, bb_id, firstVarPair=(var1, var2))
                     self.instructionList.append(memInst)
-                    self.BBList[bb_id].instructions.append(memInstID)
+                    if inst_position == -1:
+                        self.BBList[bb_id].instructions.append(instID)
+                        self.BBList[bb_id].instructions.append(memInstID)
+                    else:
+                        self.BBList[bb_id].instructions.insert(inst_position, memInstID)
+                        self.BBList[bb_id].instructions.insert(inst_position, instID)
 
                     # lastly, add this entry into the table
                     self.BBList[bb_id].opTables[IRTokens.killToken].insert(0, (operation, instID, operand1, operand2, storeData))
@@ -155,8 +159,8 @@ class SSA:
                     self.BBList[bb_id].opTables[IRTokens.killToken].insert(0, (instID, operand1))
             else:
                 instruction = InstructionNode(operation, operand1, operand2, instID, bb_id, firstVarPair=(var1, var2))
-                print(f'Instruction made: ({instID}, {self.CurrentBasicBlock}): '
-                      f'{self.opDct[operation]} {operand1} {operand2}')
+                #print(f'Instruction made: ({instID}, {self.CurrentBasicBlock}): '
+                      #f'{self.opDct[operation]} {operand1} {operand2}')
                 self.instructionList.append(instruction)
                 if inst_position != -1:
                     self.BBList[bb_id].instructions.insert(inst_position, instID)
@@ -193,7 +197,7 @@ class SSA:
     def AddInstDependency(self, instID, var):
         self.instructionList[instID].addVarDependency(var)
 
-    def FindPreviousInst(self, operation: IRTokens, operand1, operand2, bb_id):
+    def FindPreviousInst(self, operation: IRTokens, operand1, operand2, bb_id, instID=-1, inst_position=-1):
         """
         Finds the previous instruction, if it exists
         Will look up the dominator path until it's found
@@ -209,6 +213,9 @@ class SSA:
         # we also do not need to find previous instructions for store since it's always needed
         if operation in self.uncopyableInstruction or operation == IRTokens.storeToken:
             return -1
+        compareInstPos = -1
+        if instID != -1:
+            compareInstPos = self.GetInstPosInBB(instID, bb_id)
 
         if operation == IRTokens.constToken:
             for const in self.BBList[0].opTables[IRTokens.constToken]:
@@ -221,12 +228,39 @@ class SSA:
                     op_list = self.BBList[dom_block].opTables[IRTokens.killToken]
                     for inst in op_list:
                         # entries are (operation, instID, operand1, operand2, storeData)
-                        if inst[0] == IRTokens.killToken and inst[2] == operand1:
-                            return -1
-                        elif inst[0] == IRTokens.loadToken and inst[2] == operand1 and inst[3] == operand2:
-                            return inst[1] + 1
-                        elif inst[0] == IRTokens.storeToken and inst[2] == operand1 and inst[3] == operand2:
-                            return inst[4]
+                        if dom_block == bb_id:
+                            if compareInstPos != -1:
+                                currInstPos = self.GetInstPosInBB(inst[1], bb_id)
+                                if currInstPos <= compareInstPos:
+                                    if inst[0] == IRTokens.killToken and inst[2] == operand1:
+                                        return -1
+                                    elif inst[0] == IRTokens.loadToken and inst[2] == operand1 and inst[3] == operand2:
+                                        return inst[1] + 1
+                                    elif inst[0] == IRTokens.storeToken and inst[2] == operand1 and inst[3] == operand2:
+                                        return inst[4]
+                            elif inst_position != -1:
+                                currInstPos = self.GetInstPosInBB(inst[1], bb_id)
+                                if currInstPos <= inst_position:
+                                    if inst[0] == IRTokens.killToken and inst[2] == operand1:
+                                        return -1
+                                    elif inst[0] == IRTokens.loadToken and inst[2] == operand1 and inst[3] == operand2:
+                                        return inst[1] + 1
+                                    elif inst[0] == IRTokens.storeToken and inst[2] == operand1 and inst[3] == operand2:
+                                        return inst[4]
+                            else:
+                                if inst[0] == IRTokens.killToken and inst[2] == operand1:
+                                    return -1
+                                elif inst[0] == IRTokens.loadToken and inst[2] == operand1 and inst[3] == operand2:
+                                    return inst[1] + 1
+                                elif inst[0] == IRTokens.storeToken and inst[2] == operand1 and inst[3] == operand2:
+                                    return inst[4]
+                        else:
+                            if inst[0] == IRTokens.killToken and inst[2] == operand1:
+                                return -1
+                            elif inst[0] == IRTokens.loadToken and inst[2] == operand1 and inst[3] == operand2:
+                                return inst[1] + 1
+                            elif inst[0] == IRTokens.storeToken and inst[2] == operand1 and inst[3] == operand2:
+                                return inst[4]
                 else:
                     op_list = self.BBList[dom_block].opTables[operation]
                     for inst in op_list:
@@ -447,8 +481,8 @@ class SSA:
                 phiInstNode = self.instructionList[instID].setOperands(operand1=op1)
 
     def whilePhi(self, joinID, latestDoID, varEntries):
-        print(f"IN WHILE PHI! Parameters: {joinID} {latestDoID}")
-        print(varEntries)
+        #print(f"IN WHILE PHI! Parameters: {joinID} {latestDoID}")
+        #print(varEntries)
         # need to update CMP and other operands in the doblock
         # main items:
         #     if a later variable needs the unmodified instruction,
@@ -465,7 +499,7 @@ class SSA:
 
         while currID != joinID and len(exploreStack) != 0:
             currID = exploreStack.pop(0)
-            print(currID, exploreStack)
+            #print(currID, exploreStack)
             if currID not in explored:
                 explored.append(currID)
                 for child in self.BBList[currID].children:
@@ -476,7 +510,7 @@ class SSA:
                 self.whilePhiBBHelper2(currID, joinID)
 
         self.phiCleanUp(joinID)
-        print('EXITING PHI')
+        #print('EXITING PHI')
 
     def phiCleanUp(self, joinID):
         instList = self.BBList[joinID].instructions
@@ -533,16 +567,35 @@ class SSA:
                 op1 = self.whilePhiGetNodeInstID(nodeVar1, currNode.instID, bbID, joinID)
                 op2 = self.whilePhiGetNodeInstID(nodeVar2, currNode.instID, bbID, joinID)
 
-                currNode.setOperands(op1, op2)
+
                 # replace the entry in the basic block's operation table
+                if nodeVar1[0] == 3:
+                    if nodeVar1[1][0] == 0:
+                        op1 = self.FindPreviousInst(IRTokens.loadToken, nodeVar1[1][1], nodeVar1[1][2], bbID, currNode.instID)
+                        if op1 == -1:
+                            instPos = self.GetInstPosInBB(currNode.instID, bbID)
+                            op1, _ = self.DefineIR(IRTokens.loadToken, bbID, nodeVar1[1][1], nodeVar1[1][2], inst_position=instPos)
+
+                    else:
+                        op1 = oldOp1
+                if nodeVar2[0] == 3:
+                    if nodeVar2[1][0] == 0:
+                        op2 = self.FindPreviousInst(IRTokens.loadToken, nodeVar1[1][1], nodeVar1[1][2], bbID, currNode.instID)
+                        if op2 == -1:
+                            instPos = self.GetInstPosInBB(currNode.instID, bbID)
+                            op2, _ = self.DefineIR(IRTokens.loadToken, bbID, nodeVar2[1][1], nodeVar2[1][2], inst_position=instPos)
+                    else:
+                        op2 = oldOp2
+                currNode.setOperands(op1, op2)
                 for opIdx in range(len(self.BBList[bbID].opTables[currNode.instruction])):
                     if self.BBList[bbID].opTables[currNode.instruction][opIdx] == (currNode.instID, oldOp1, oldOp2):
                         self.BBList[bbID].opTables[currNode.instruction][opIdx] = (currNode.instID, op1, op2)
                         break
             elif currNode.instruction == IRTokens.writeToken:
                 op1 = currNode.firstVarPair[0]
-                instID = self.GetVarVersion(op1[1][1], bb_id=bbID, varVersion=op1[1][0])
-                currNode.setOperands(operand1=instID[1])
+                if op1 == 1:
+                    instID = self.GetVarVersion(op1[1][1], bb_id=bbID, varVersion=op1[1][0])
+                    currNode.setOperands(operand1=instID[1])
             elif currNode.instruction == IRTokens.phiToken:
                 # join type 1 is while loops... but why change op1??
                 if self.BBList[bbID].joinType == 1:
@@ -588,7 +641,8 @@ class SSA:
                     # print(self.t.GetTokenStr(k), v)
                     oldHistID = []
                     if len(ssaVersion[2]) == 1 and len(ssaVersion[2][0]) == 2:
-                        print(k, ssaVersion[2])
+                        pass
+                        #print(k, ssaVersion[2])
                     else:
                         for hist in ssaVersion[2]:
                             # gather both current and previous instruction operand for comparison
@@ -665,14 +719,14 @@ class SSA:
                         if len(newHist) != 0:
                             ssaInstID = newHist[-1][0]
                         if newHistID != oldHistID and phiInstID == -1:
-                            print(bbID, newHistID, oldHistID, ssaInstID)
+                            #print(bbID, newHistID, oldHistID, ssaInstID)
                             self.AddPhiNode(k, ssaInstID, self.BBList[bbID].joinBlocks, bbID)
                         self.BBList[bbID].valueTable[k][i] = (ver, ssaInstID, newHist)
 
                 newFinalSSAVersionInBlock = self.BBList[bbID].valueTable[k][0][1]
-                print(finalSSAVersionInBlock,newFinalSSAVersionInBlock)
+                #print(finalSSAVersionInBlock,newFinalSSAVersionInBlock)
                 if finalSSAVersionInBlock != newFinalSSAVersionInBlock:
-                    print(finalSSAVersionInBlock, newFinalSSAVersionInBlock)
+                    #print(finalSSAVersionInBlock, newFinalSSAVersionInBlock)
                     self.AddPhiNode(k, newFinalSSAVersionInBlock, self.BBList[bbID].joinBlocks, bbID)
 
     def whilePhiGetNodeInstID(self, nodeVar, currInstID, bbID, joinID):
@@ -687,7 +741,7 @@ class SSA:
                     # if nodeVar[1] in phiInst:
                     #     op = phiInst[nodeVar[1]]
                     # else:
-                    print(f'FIND NODE HISTORY: {nodeVar} {bbID} {joinID}')
+                    #print(f'FIND NODE HISTORY: {nodeVar} {bbID} {joinID}')
                     if nodeVar[1][1] in self.BBList[bbID].valueTable:
                         versionHistory = self.BBList[bbID].valueTable[nodeVar[1][1]]
                     else:
@@ -709,7 +763,7 @@ class SSA:
                         # last resort, this variable was initialized inside this join block
                         if op == -1:
                             op = self.BBList[joinID].valueTable[nodeVar[1][1]][0][1]
-                    print(f'Node history is {op}')
+                    #print(f'Node history is {op}')
                 else:
                     op = self.GetVarVersion(nodeVar[1][1], bbID)[1]
         return op
@@ -924,5 +978,5 @@ class SSA:
 
         separator = "\n"
         dot = f'digraph G {{\n{separator.join(blockSect)}\n\n{separator.join(dagSect)}\n{separator.join(domSect)} \n}}'
-        print(dot)
+
         return dot
