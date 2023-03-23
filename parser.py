@@ -689,7 +689,7 @@ if __name__ == '__main__':
     comp = Parser("./test.txt", False)
     comp.computation()
     comp.PrintSSA()
-    dot = comp.GenerateDot(varMode=True, debugMode=True)
+    dot = comp.GenerateDot(varMode=True, debugMode=False)
     # with open(filePath + '.dot', 'w') as f:
     #     f.write(dot)
     print(dot)

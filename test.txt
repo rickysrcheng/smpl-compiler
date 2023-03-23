@@ -1,17 +1,27 @@
 main
-array[12] d;
+var a, i, j;
 {
-	let d[5] <- 1776;
-	call OutputNum(d[5]);
-	if 5 < 12 then
-		if 5 < 11 then
-			let d[5] <- 1992;
-		else
-			call OutputNum(d[5]);
-		fi;
-		call OutputNum(d[5]);
-	else
-		call OutputNum(d[5]);
-	fi;
-	call OutputNum(d[5]);
+    let a <- call InputNum();
+    let i <- 0;
+    let j <- 1;
+    while i < 10 do
+        let j<- 1;
+        while j < 10 do
+            let a <- a*(j + 2);
+            let j <- j + 1;
+        od;
+        let j <- 1;
+        let i <- i + 1;
+    od;
+    while i < 10 do
+        let j<- 1;
+        while j < 10 do
+            let a <- a*(j + 2);
+            let j <- j + 1;
+        od;
+        let j <- 1;
+        let i <- i + 1;
+    od;
+    call OutputNum(j);
+    call OutputNum(a);
 }.

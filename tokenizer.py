@@ -19,9 +19,9 @@ class FileReader:
             self.__EOF = True
         return sym
 
-    def Error(self, errorMsg):
+    def Error(self, errorMsg=""):
         self.__ERROR = True
-        print('Error')
+        print(f'Error {errorMsg}')
         self.close()
 
     def close(self):

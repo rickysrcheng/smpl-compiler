@@ -342,6 +342,8 @@ class SSA:
             blockID = bb_id
         dom_list = self.BBList[blockID].dominators
         for dom_block in dom_list:
+            if phi and dom_block != bb_id:
+                break
             if not prevBB or dom_block != bb_id:
                 if varToken in self.BBList[dom_block].valueTable:
                     # if we're not looking for a particular version
@@ -393,12 +395,13 @@ class SSA:
         ssaBB = currBB
         whilePhi = []
         for opType, joinID, entryID in reversed(joinBlocks):
+            varExists = self.GetVarVersion(identToken, joinID)
             phiInstVar = self.GetVarVersion(identToken, joinID, phi=True)
             entryInstVar = self.GetVarVersion(identToken, entryID)
 
             # if phi function does not exist in the join block yet
             #    create phi function
-            if phiInstVar[1] == entryInstVar[1] and phiInstVar[1] != -1:
+            if (phiInstVar[1] == entryInstVar[1] and phiInstVar[1] != -1) or (phiInstVar[1] == -1 and varExists):
                 if opType == 0:  # or opType == 2:
                     op1 = ssaVal
                     op2 = entryInstVar[1]
@@ -670,7 +673,7 @@ class SSA:
 
                             if op1 != newSSAOp1 or op2 != newSSAOp2:
                                 node1TF = False
-                                node2Tf = False
+                                node2TF = False
                                 instBBID = self.FindInstBlock(instID)
                                 if nodeVar1[0] == 1 and instNode.firstVarPair[0] == nodeVar1:
                                     varVers = self.GetVarVersion(nodeVar1[1][1], instBBID)[1]
@@ -680,6 +683,7 @@ class SSA:
                                     varVers = self.GetVarVersion(nodeVar2[1][1], instBBID)[1]
                                     if varVers != op2 and instBBID != bbID:
                                         node2TF = True
+
                                 if node1TF and node2TF:
                                     instNode.setOperands(newSSAOp1, newSSAOp2)
                                 else:
@@ -826,7 +830,7 @@ class SSA:
             op = inst.instruction
             instID = inst.instID
             print(f'({instID}, {inst.BB}): {self.opDct[op]} {op1} {op2}, variable pair: {inst.firstVarPair}, '
-                  f'dependency: {inst.dependency}')
+                  f'dependency: {inst.dependency}, active: {inst.active}')
 
     def PrintBlocks(self):
         for block in self.BBList:
@@ -935,7 +939,10 @@ class SSA:
                                     versionString += f'({vrsn[0]}, {op1}, {op2})'
                             valueVerInfo = f'{tokenizer.GetTokenStr(k)}: {versionString}])|'
                         else:
-                            valueVerInfo = f'{tokenizer.GetTokenStr(k)}: ({v[0]}, {v[1]})|'
+                            if self.instructionList[v[1]].active:
+                                valueVerInfo = f'{tokenizer.GetTokenStr(k)}: ({v[0]}, {v[1]})|'
+                            else:
+                                valueVerInfo = ""
                         valueInfo += valueVerInfo
                     blockInfo += valueInfo
                 blockInfo = blockInfo[:-1]
