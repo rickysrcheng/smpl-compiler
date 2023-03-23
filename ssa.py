@@ -505,6 +505,7 @@ class SSA:
             #print(currID, exploreStack)
             if currID not in explored:
                 explored.append(currID)
+                currBBNode = self.BBList[currID]
                 for child in self.BBList[currID].children:
                     exploreStack.append(child)
 
@@ -570,7 +571,6 @@ class SSA:
                 op1 = self.whilePhiGetNodeInstID(nodeVar1, currNode.instID, bbID, joinID)
                 op2 = self.whilePhiGetNodeInstID(nodeVar2, currNode.instID, bbID, joinID)
 
-
                 # replace the entry in the basic block's operation table
                 if nodeVar1[0] == 3:
                     if nodeVar1[1][0] == 0:
@@ -578,7 +578,6 @@ class SSA:
                         if op1 == -1:
                             instPos = self.GetInstPosInBB(currNode.instID, bbID)
                             op1, _ = self.DefineIR(IRTokens.loadToken, bbID, nodeVar1[1][1], nodeVar1[1][2], inst_position=instPos)
-
                     else:
                         op1 = oldOp1
                 if nodeVar2[0] == 3:
@@ -646,6 +645,15 @@ class SSA:
                     if len(ssaVersion[2]) == 1 and len(ssaVersion[2][0]) == 2:
                         pass
                         #print(k, ssaVersion[2])
+                    elif self.instructionList[ssaInstID].instruction == IRTokens.loadToken:
+                        # if the assignment is only a load
+                        # we can check if the instruction has a phi
+                        # this means it's the first SSA assigned in this block
+                        # then we check if
+                        # otherwise, we need to reload
+                        addaInst = self.instructionList[ssaInstID - 1]
+                        newLoad = self.FindPreviousInst(IRTokens.loadToken, addaInst.operand1, addaInst.operand2, bbID)
+                        self.BBList[bbID].valueTable[k][i] = (ver, newLoad, newHist)
                     else:
                         for hist in ssaVersion[2]:
                             # gather both current and previous instruction operand for comparison
@@ -654,11 +662,29 @@ class SSA:
                             nodeVar1 = hist[1]
                             nodeVar2 = hist[2]
 
-                            newSSAOp1 = self.whilePhiGetNodeInstID(nodeVar1, instID, bbID, joinID)
+                            if nodeVar1[0] == 3:
+                                newSSAOp1 = self.FindPreviousInst(IRTokens.loadToken, nodeVar1[1][1], nodeVar1[1][2], bbID,
+                                                            instID)
+                                if newSSAOp1 == -1:
+                                    instPos = self.GetInstPosInBB(instID, bbID)
+                                    newSSAOp1, _ = self.DefineIR(IRTokens.loadToken, bbID, nodeVar1[1][1], nodeVar1[1][2],
+                                                           inst_position=instPos)
+                            else:
+                                newSSAOp1 = self.whilePhiGetNodeInstID(nodeVar1, instID, bbID, joinID)
                             if newSSAOp1 in instChanges:
                                 newSSAOp1 = instChanges[newSSAOp1]
 
                             newSSAOp2 = self.whilePhiGetNodeInstID(nodeVar2, instID, bbID, joinID)
+                            if nodeVar2[0] == 3:
+                                newSSAOp2 = self.FindPreviousInst(IRTokens.loadToken, nodeVar2[1][1], nodeVar2[1][2], bbID,
+                                                            instID)
+                                if newSSAOp2 == -1:
+                                    instPos = self.GetInstPosInBB(instID, bbID)
+                                    newSSAOp2, _ = self.DefineIR(IRTokens.loadToken, bbID, nodeVar2[1][1], nodeVar2[1][2],
+                                                           inst_position=instPos)
+                            else:
+                                newSSAOp2 = self.whilePhiGetNodeInstID(nodeVar2, instID, bbID, joinID)
+
                             if newSSAOp2 in instChanges:
                                 newSSAOp2 = instChanges[newSSAOp2]
 
@@ -723,14 +749,11 @@ class SSA:
                         if len(newHist) != 0:
                             ssaInstID = newHist[-1][0]
                         if newHistID != oldHistID and phiInstID == -1:
-                            #print(bbID, newHistID, oldHistID, ssaInstID)
                             self.AddPhiNode(k, ssaInstID, self.BBList[bbID].joinBlocks, bbID)
                         self.BBList[bbID].valueTable[k][i] = (ver, ssaInstID, newHist)
 
                 newFinalSSAVersionInBlock = self.BBList[bbID].valueTable[k][0][1]
-                #print(finalSSAVersionInBlock,newFinalSSAVersionInBlock)
                 if finalSSAVersionInBlock != newFinalSSAVersionInBlock:
-                    #print(finalSSAVersionInBlock, newFinalSSAVersionInBlock)
                     self.AddPhiNode(k, newFinalSSAVersionInBlock, self.BBList[bbID].joinBlocks, bbID)
 
     def whilePhiGetNodeInstID(self, nodeVar, currInstID, bbID, joinID):

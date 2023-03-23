@@ -455,7 +455,7 @@ class Parser:
         exitBB = self.ssa.CreateNewBasicBlock(joinBBDom, [joinBB], [joinBB], "exit\\n")
 
         self.ssa.AddBlockChild(joinBB, exitBB)
-        self.PrintSSA()
+        #self.PrintSSA()
         self.ssa.whilePhi(joinBB, latestDoBB, self.identTable)
         self.joinStack.pop()
         self.ssa.AddBlockJoinStack(exitBB, self.joinStack)
@@ -688,7 +688,7 @@ if __name__ == '__main__':
     #comp = Parser(filePath + ".txt", True)
     comp = Parser("./test.txt", False)
     comp.computation()
-    comp.PrintSSA()
+    #comp.PrintSSA()
     dot = comp.GenerateDot(varMode=True, debugMode=False)
     # with open(filePath + '.dot', 'w') as f:
     #     f.write(dot)
