@@ -291,6 +291,13 @@ class SSA:
                 else:
                     varSSAVal = (n + 1, instID, instList)
                     self.BBList[bb_id].valueTable[varToken] = [(n + 1, instID, instList)]
+            elif inst == instID:
+                if varToken in self.BBList[bb_id].valueTable:
+                    varSSAVal = (n + 1, instID, instList)
+                    self.BBList[bb_id].valueTable[varToken].insert(0, (n + 1, instID, instList))
+                else:
+                    varSSAVal = (n + 1, instID, instList)
+                    self.BBList[bb_id].valueTable[varToken] = [(n + 1, instID, instList)]
             elif n == -1:
                 varSSAVal = (0, instID, instList)
                 self.BBList[bb_id].valueTable[varToken] = [(0, instID, instList)]
@@ -420,6 +427,10 @@ class SSA:
                     if opType == 2:
                         whilePhi.append((joinID, ssaVal))
                     self.AssignVariable(identToken, ssaVal, joinID)
+                else:
+                    inactivePhi, _ = self.DefineIR(IRTokens.phiToken, joinID, op1, op2, var1=(1, (0, identToken)),
+                                              var2=operands)
+                    self.instructionList[inactivePhi].active = False
             # otherwise, some function exists
             #     this means that the identToken is a later assignment than the previous
             #     assignment and should be updated to this
@@ -610,6 +621,10 @@ class SSA:
                         self.ChangeOperands(currNode.instID, op1=op1)
                     if op2 != -1:
                         self.ChangeOperands(currNode.instID, op2=op2)
+                    if op1 != op2:
+                        currNode.active = True
+                    else:
+                        currNode.active = False
                     if type(op2) == tuple:
                         ident = op2[1][1]
                         op2InstID = self.GetVarVersion(ident, joinID)
