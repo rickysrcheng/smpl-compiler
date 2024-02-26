@@ -1,22 +1,19 @@
 main
-var x, y;
-array[1] a, b;
+var x,y,i,j;
 {
-    let a[0] <- 10;
-    let b[0] <- 20;
-
-    let x <- a[0];
-    let y <- b[0];
-
-    while a[0] < b[0] do
-        let b[0] <- 100;
-        let a[0] <- 200;
-        let x <- y + 1;
+    let i<-call InputNum();
+    let x<-0;
+    let y<-0;
+    let j<- i;
+    while x<10 do
+        let x <- i + 1;
+        let y <- j + 1;
+        while j<10 do
+            let x <- j + 1;
+            let y <- i + 1;
+            let j <-j + 1
+        od;
+        let i <-i + 1
     od;
-
-    call OutputNum(x);
-    let x <- a[0];
-    let y <- b[0];
-    call OutputNum(x);
-    call OutputNum(y);
+    call OutputNum(x)
 }.
